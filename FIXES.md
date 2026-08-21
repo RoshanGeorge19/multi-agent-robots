@@ -117,6 +117,8 @@ lidar_output.reshape(self.num_envs, -1)   # 768 values
 258 = 256 + 2, the intent was clearly per-ray *distances*, which the code already
 computed (twice, redundantly). It now feeds `lidar_distances`.
 
+The space was subsequently widened to **261** to include the goal — see section 10.
+
 > Worth knowing: `vertical_fov_range=(0.0, 0.0)` with `channels=16` produces 16
 > identical copies of the same 16 directions. The observation is 256 numbers but
 > only 16 are unique. Setting `channels=1` gives 16 real rays and an observation
@@ -213,6 +215,63 @@ of failing inside `torch.stack` on an empty list.
 Typical yield is ~1,300 of 4,000 candidates, a plausible free-space fraction for
 this maze.
 
+## 10. The policy could not perceive the goal
+
+The observation was 256 lidar distances + linear velocity + angular velocity.
+It contained **no goal information at all**. `_get_observations` computed
+`goal_relative` and `self.goal_distance` and then discarded both — `goal_distance`
+was assigned and never read anywhere in the file.
+
+The reward function asked the robot to reach a goal that was invisible to the
+policy. No RL algorithm can solve that; the best available behaviour is
+"drive around without hitting walls."
+
+The goal offset is now expressed in the **robot's own frame** — using
+`quat_apply_inverse(yaw_quat(root_quat_w), ...)`, so it rotates with the robot
+rather than being a fixed world vector — and appended as three values:
+body-frame `x`, body-frame `y`, and the scalar distance.
+`observation_space` is now **261** (256 + 2 + 3).
+
+## 11. Terminations and rewards ran on stale sensor data
+
+`DirectRLEnv.step()` executes in this order:
+
+```
+_get_dones()        <- line 467
+_get_rewards()      <- line 469
+_reset_idx()        <- line 474
+_get_observations() <- line 486
+```
+
+`self.collisions_array` and `self.is_too_close` were only computed inside
+`_get_observations()`, i.e. at the *end* of the step. So dones and rewards
+consumed values produced by the previous step: collisions terminated one step
+late and were rewarded one step late.
+
+There was also a reset-loop risk. `_get_observations()` runs immediately after
+`_reset_idx()` teleports the robot, so it could latch contact forces from the
+pre-reset pose and terminate the freshly-started episode.
+
+Extracted into `_update_sensor_state()`, called at the top of `_get_dones()` so
+that dones and rewards both see the current step, and again from
+`_get_observations()` to cover the `reset()` path where `_get_dones()` never runs.
+Collision flags are not part of the observation, so the second call cannot leak a
+stale value into the policy input.
+
+## 12. Forward velocity was measured in the world frame
+
+`root_lin_vel_w[:, 0]` is the world x-component, not the robot's forward speed —
+the two diverge as soon as the robot turns, so the observation stopped meaning
+what its name implied. Now uses `root_lin_vel_b` / `root_ang_vel_b`.
+
+## 13. Dead state and duplicated reward terms
+
+`wall_collision`, `robot_collision`, `goal_distance` and `rb3_linear_velocity`
+were initialised and never read. In `_get_rewards`, `collision_rew` and
+`proximity_rew` were each computed twice, the first pair immediately overwritten
+by the second. All removed.
+
+
 ---
 
 ## Verification
@@ -220,8 +279,12 @@ this maze.
 `train.py --headless --steps 200` runs to completion. Measured directly:
 
 - 200/200 steps executed, clean shutdown, no traceback.
-- Observations are `(num_envs, 258)`, matching `cfg.observation_space`, and
+- Observations are `(num_envs, 261)`, matching `cfg.observation_space`, and
   `torch.isfinite(obs).all()` is `True`.
+- The goal distance carried in the observation matches the true goal distance to
+  within 6e-8, and the body-frame goal bearing rotates as the robot turns in
+  place, confirming it is a body-frame quantity rather than a world-frame one.
+- `_update_sensor_state()` runs exactly twice per step (dones + observations).
 - All four robots spawn inside their **own** maze (env origins `(±6, ±6)`).
 - All four spawn upright — body up-axis z-component is exactly `1.0`, and the
   quaternions are pure yaw (`x = y = 0`).
@@ -238,6 +301,18 @@ These are **not** fixed here.
 - **No learning algorithm is attached.** Everything above steps a zero/constant
   action policy. The env is in a shape that can feed rsl_rl / skrl / RL-Games, but
   wiring one up is still to do.
+- **This is still a single-robot environment.** The XGO quadruped is deactivated
+  and only `rover_rb3` is registered, so the project goal of training *two* robots
+  is not met. `rew_robot_proximity_penalty`, the commented-out
+  `rew_robot_collision` and the former `robot_collision` buffer all show the
+  intent, but none of it can do anything with one robot per env. Adding a second
+  agent is a design decision — a second articulation under `DirectMARLEnv`, or two
+  independent single-agent policies — not a bug fix.
+- **`is_too_close` measures walls, not robots.** It triggers on any lidar return
+  within `WALL_MARGIN`, which in a single-robot env is always a wall, yet it is
+  applied with `rew_robot_proximity_penalty` while walls are already penalised via
+  `rew_wall_collision`. Wall proximity is therefore double-counted. This needs
+  separating once a second robot exists.
 - **The XGO quadruped is loaded then deactivated** in every env. It is the source
   of the `NewtonMimicAPI ... revolute joint without a finite limit` errors in the
   log. Harmless, but it is dead weight in every environment.

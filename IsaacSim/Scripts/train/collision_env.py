@@ -36,7 +36,7 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils.configclass import configclass
 from isaaclab.sim.schemas import ArticulationRootPropertiesCfg
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns, Camera, CameraCfg
-from isaaclab.utils.math import sample_uniform
+from isaaclab.utils.math import sample_uniform, quat_apply_inverse, yaw_quat
 from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
 import warp as wp
@@ -84,7 +84,9 @@ class CollisionEnvRB3Cfg(DirectRLEnvCfg):
     decimation = 4 # nb of physics simulation steps for each RL action
     episode_length_s = 18.0
     action_space = 2 # linear and angular velocity
-    observation_space = 258 # [lidar lasers, linear_velocity, angular_velocity]
+    # [lidar distances (256), linear_velocity, angular_velocity,
+    #  goal x/y in body frame, goal distance]
+    observation_space = 261
     state_space = 0
 
     linear_scale = 0.25   # m/s
@@ -175,11 +177,7 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         self.goal_pos = torch.zeros((self.num_envs, 2), device=self.device)
         self.previous_distance = torch.zeros(self.num_envs, device=self.device)
-        self.wall_collision = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.robot_collision = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
-        self.rb3_linear_velocity = 0.0
-        self.rb3_angular_velocity = 0.0
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
         self.wheel_base = 0.095
@@ -192,9 +190,10 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         )
         print("Wheel joints:", self._wheel_names, "->", self._wheel_ids)
 
-        self.goal_distance = torch.zeros(self.num_envs, device=self.device)
         self.collisions_array = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # per-ray lidar distances, populated by _update_sensor_state()
+        self.lidar_distances: torch.Tensor | None = None
 
         print("Collision env init done")
 
@@ -457,77 +456,75 @@ class CollisionAvoidanceEnv(DirectRLEnv):
     # Observations
     # -------------------------------------------------------------------------
 
-    def _get_observations(self) -> dict:
-        # get tag pose in isaac sim + noise
+    def _update_sensor_state(self) -> None:
+        """Refresh contact / lidar derived state.
 
-        # wp.to_torch avoids compatibility problems
-        robot_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2] # world frame position, exclude z
-
-        # TODO measure proximity using Lidar
-
-        # TODO check collisions
+        DirectRLEnv.step() calls _get_dones() and _get_rewards() *before*
+        _get_observations(), so computing this inside _get_observations() left
+        terminations and rewards acting on the previous step's sensor readings.
+        This is called at the top of _get_dones() so both see fresh data, and
+        again from _get_observations() to cover the reset path, where
+        _get_dones() does not run.
+        """
         contact_forces = wp.to_torch(self.contact_sensor.data.net_forces_w)
-
-        contact_magnitude = torch.linalg.vector_norm(
-            contact_forces,
-            dim=-1,
-        )
-
+        contact_magnitude = torch.linalg.vector_norm(contact_forces, dim=-1)
         self.collisions_array = (contact_magnitude > 1.0).any(dim=1)
 
-        # compute distance to goal for reward
-        goal_relative = (self.goal_pos - robot_pos)
-        self.goal_distance = torch.linalg.vector_norm(goal_relative, dim=-1).unsqueeze(-1)
-
-        linear_velocity = (wp.to_torch(self.rover_rb3.data.root_lin_vel_w)[:, 0])
-        angular_velocity = (wp.to_torch(self.rover_rb3.data.root_ang_vel_w)[:, 2])
-
-        # check the distances for wall proximity reward
         lidar_origin = torch.as_tensor(self.scene["lidar"].data.pos_w, device=self.device)
-
         lidar_output = torch.as_tensor(self.scene["lidar"].data.ray_hits_w, device=self.device)
-
-        # print("origin torch:", lidar_origin.shape)
-        # print("output torch:", lidar_output.shape)
 
         lidar_distances = torch.linalg.vector_norm(lidar_output - lidar_origin.unsqueeze(1), dim=-1)
 
         # Rays that hit nothing come back as inf. Feeding inf to the policy produces
         # NaNs on the first backward pass, so saturate misses at the sensor range.
-        lidar_distances = torch.nan_to_num(
+        self.lidar_distances = torch.nan_to_num(
             lidar_distances,
             nan=self.cfg.lidar_max_distance,
             posinf=self.cfg.lidar_max_distance,
             neginf=self.cfg.lidar_max_distance,
         ).clamp(0.0, self.cfg.lidar_max_distance)
 
-        # print("========== LIDAR DATA ==========")
-        # print("origin type:", type(lidar_origin))
-        # print("origin:", lidar_origin)
-        # print("output type:", type(lidar_output))
-        # print("output:", lidar_output)
+        # NOTE: this measures proximity to *any* lidar return, which in a
+        # single-robot environment is always a wall. It is applied with
+        # cfg.rew_robot_proximity_penalty; separate the two once a second robot
+        # exists, otherwise wall proximity is penalised twice.
+        self.is_too_close = (self.lidar_distances < WALL_MARGIN).any(dim=1)
 
-        # try:
-        #     print("origin shape:", lidar_origin.shape)
-        # except Exception as e:
-        #     print("origin shape ERROR:", e)
+    def _goal_in_body_frame(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Goal offset expressed in the robot's own frame, plus its magnitude."""
+        robot_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
+        robot_quat = wp.to_torch(self.rover_rb3.data.root_quat_w)
 
-        # try:
-        #     print("output shape:", lidar_output.shape)
-        # except Exception as e:
-        #     print("output shape ERROR:", e)
+        goal_relative_w = torch.zeros((self.num_envs, 3), device=self.device)
+        goal_relative_w[:, :2] = self.goal_pos - robot_pos
 
-        # print("===============================")
+        # only the heading matters for a ground robot; ignore roll/pitch
+        goal_relative_b = quat_apply_inverse(yaw_quat(robot_quat), goal_relative_w)
 
-        self.is_too_close = (lidar_distances < WALL_MARGIN).any(dim=1)
+        distance = torch.linalg.vector_norm(goal_relative_b[:, :2], dim=-1)
 
-        # pass per-ray distances to the policy: num_rays + linear vel + angular vel,
-        # which must equal cfg.observation_space
+        return goal_relative_b[:, :2], distance
+
+    def _get_observations(self) -> dict:
+        # covers reset(), where _get_dones() has not run
+        self._update_sensor_state()
+
+        # body-frame velocities: root_lin_vel_w[:, 0] is the world x component,
+        # which stops being the robot's forward speed as soon as it turns
+        linear_velocity = wp.to_torch(self.rover_rb3.data.root_lin_vel_b)[:, 0]
+        angular_velocity = wp.to_torch(self.rover_rb3.data.root_ang_vel_b)[:, 2]
+
+        # Without this the policy cannot perceive the goal it is rewarded for
+        # reaching, and the task is unlearnable.
+        goal_relative_b, goal_distance = self._goal_in_body_frame()
+
         obs = torch.cat(
             (
-                lidar_distances.reshape(self.num_envs, -1),
+                self.lidar_distances.reshape(self.num_envs, -1),
                 linear_velocity.unsqueeze(-1),
                 angular_velocity.unsqueeze(-1),
+                goal_relative_b,
+                goal_distance.unsqueeze(-1),
             ),
             dim=-1,
         )
@@ -540,19 +537,7 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
 
-        robot_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
-
-        current_distance = torch.linalg.vector_norm(self.goal_pos - robot_pos, dim=-1)
-
-        collision_rew = (
-            self.collisions_array.float()
-            * self.cfg.rew_wall_collision
-        )
-
-        proximity_rew = (
-            self.is_too_close.float()
-            * self.cfg.rew_robot_proximity_penalty
-        )
+        _, current_distance = self._goal_in_body_frame()
 
         progress = self.previous_distance - current_distance
         # TODO global variable
@@ -574,10 +559,11 @@ class CollisionAvoidanceEnv(DirectRLEnv):
     # -------------------------------------------------------------------------
 
     def _get_dones(self):
+        # runs before _get_rewards() and _get_observations(), so refresh here to
+        # keep terminations and rewards on the current step's sensor data
+        self._update_sensor_state()
 
-        robot_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
-
-        current_distance = torch.linalg.vector_norm(self.goal_pos - robot_pos, dim=-1)
+        _, current_distance = self._goal_in_body_frame()
         goal_reached = current_distance < 0.15
 
         has_collided = self.collisions_array
