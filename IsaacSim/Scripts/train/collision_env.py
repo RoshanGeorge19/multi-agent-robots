@@ -47,6 +47,24 @@ from omni.physx.scripts import physicsUtils
 WALL_MARGIN = 0.20
 ROVER_PATH = "_ROBOTS_/rover_rb3/Geometry/world/base_link"
 
+# XGO quadruped (mini2). The articulation root sits under Geometry/world, while the
+# joints live in a sibling Physics scope.
+XGO_PATH = "_ROBOTS_/xgo_lite/Geometry/world/base_link"
+XGO_JOINTS_SCOPE = "_ROBOTS_/xgo_lite/Physics"
+
+# Leg joints, named <leg><index>: legs 1-4, three joints each. The remaining
+# revolute joints (51/52/53) are the arm and are not used for locomotion.
+XGO_LEG_JOINTS = [f"{leg}{idx}_Joint" for leg in (1, 2, 3, 4) for idx in (1, 2, 3)]
+
+# The URDF -> USD import dropped the joint limits: all 15 revolute joints come
+# through with (-inf, inf), which the physics parser rejects with
+#   "revolute joint without a finite limit set. A finite limit is required."
+# The source URDF is not in this repo, so the real hardware travel is unknown.
+# ASSUMPTION: +/- 90 deg, a typical range for the serial bus servos on this class
+# of hobby quadruped. Replace with the true per-joint limits when the URDF is
+# available -- this value affects what gaits are reachable.
+XGO_JOINT_LIMIT_DEG = 90.0
+
 # <repo>/IsaacSim/Scripts/train/collision_env.py -> <repo>/IsaacSim/multi_agent_robots.usd
 SCENE_USD_PATH = str(Path(__file__).resolve().parents[2] / "multi_agent_robots.usd")
 
@@ -69,6 +87,32 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
                 joint_names_expr=["wheel_fl_joint", "wheel_fr_joint", "wheel_rl_joint", "wheel_rr_joint"],
                 stiffness=0.0,
                 damping=10000.0,
+            ),
+        },
+    )
+
+    xgo_lite: ArticulationCfg = ArticulationCfg(
+        prim_path="{ENV_REGEX_NS}/scene/" + XGO_PATH,
+        spawn=None,
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=(0.0, 0.0, 0.12),
+            rot=(0.0, 0.0, 0.0, 1.0),
+        ),
+        actuators={
+            # position-controlled legs: the gait generator supplies joint targets
+            "legs": ImplicitActuatorCfg(
+                joint_names_expr=[f"tn__{n}_" for n in XGO_LEG_JOINTS],
+                stiffness=20.0,
+                damping=0.5,
+            ),
+            # The arm (51/52/53) and gripper (50/500) take no part in locomotion,
+            # but every joint must belong to an actuator group or IsaacLab warns
+            # that the articulation is only partially actuated. Hold them still.
+            "arm": ImplicitActuatorCfg(
+                # covers 50, 51, 52, 53 and 500
+                joint_names_expr=["tn__5.*_Joint_"],
+                stiffness=50.0,
+                damping=1.0,
             ),
         },
     )
@@ -197,6 +241,37 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         print("Collision env init done")
 
+
+    def _fix_xgo_joint_limits(self, stage, env_root: str) -> int:
+        """Author finite limits on the XGO's revolute joints.
+
+        The URDF -> USD conversion left every revolute joint at (-inf, inf). The
+        physics parser rejects that outright, so the joints must be given finite
+        travel before the simulation starts. See XGO_JOINT_LIMIT_DEG for the
+        assumption being made about the real hardware range.
+        """
+        scope = stage.GetPrimAtPath(f"{env_root}/scene/{XGO_JOINTS_SCOPE}")
+        if not scope.IsValid():
+            return 0
+
+        fixed = 0
+        for joint_prim in Usd.PrimRange(scope):
+            if joint_prim.GetTypeName() != "PhysicsRevoluteJoint":
+                continue
+            joint = UsdPhysics.RevoluteJoint(joint_prim)
+
+            lower = joint.GetLowerLimitAttr().Get()
+            upper = joint.GetUpperLimitAttr().Get()
+
+            # only touch joints that are actually unbounded; leave authored limits alone
+            if lower is not None and upper is not None and lower > -1e30 and upper < 1e30:
+                continue
+
+            joint.CreateLowerLimitAttr().Set(-XGO_JOINT_LIMIT_DEG)
+            joint.CreateUpperLimitAttr().Set(XGO_JOINT_LIMIT_DEG)
+            fixed += 1
+
+        return fixed
 
     def _build_maze_warp_mesh(self, maze_prim):
         """Collect every mesh under the maze prim into a single world-space warp mesh.
@@ -348,13 +423,10 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         stage = omni.usd.get_context().get_stage()
 
-        xgo_prim_path = f"{prim_path}/_ROBOTS_/xgo_lite"
-
-        xgo_prim = stage.GetPrimAtPath(xgo_prim_path)
-
-        if xgo_prim.IsValid():
-            xgo_prim.SetActive(False)
-            print(f"[INFO] Disabled XGO: {xgo_prim_path}")
+        # The XGO used to be deactivated here. It is now simulated as the second
+        # agent, which first requires repairing the joint limits lost on import.
+        for env_id in range(self.cfg.scene.num_envs):
+            self._fix_xgo_joint_limits(stage, f"/World/envs/env_{env_id}")
 
         source_robot_path = f"{prim_path}/{ROVER_PATH}"
         robot_prim = stage.GetPrimAtPath(source_robot_path)
@@ -404,6 +476,10 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         self.rover_rb3 = Articulation(self.cfg.scene.rover_rb3)
         self.scene.articulations["rover_rb3"] = self.rover_rb3
+
+        self.cfg.scene.xgo_lite.prim_path = f"{env_regex}/scene/{XGO_PATH}"
+        self.xgo_lite = Articulation(self.cfg.scene.xgo_lite)
+        self.scene.articulations["xgo_lite"] = self.xgo_lite
 
         print(">>> _setup_scene() terminé avec succès, capteurs synchronisés.")
     
