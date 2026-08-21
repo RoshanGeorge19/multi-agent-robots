@@ -33,8 +33,10 @@ HIP_Y = 0.045
 FOOT_X = 0.0825
 FOOT_Y = 0.095
 
-# nominal body height above the feet
-STAND_HEIGHT = 0.13
+# Nominal body height above the feet. The vendor driver puts the real range at
+# 75-115 mm (body_limit[2] in xgomini.yaml) and defaults foot height to 108 mm
+# (xgo.h:53). XGOModel's 0.13 is outside what this robot can actually do.
+STAND_HEIGHT = 0.108
 
 # Leg order used throughout this module.
 LEG_NAMES = ("FL", "FR", "BL", "BR")

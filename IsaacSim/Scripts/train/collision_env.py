@@ -60,14 +60,32 @@ XGO_JOINTS_SCOPE = "_ROBOTS_/xgo_lite/Physics"
 # no part in locomotion.
 XGO_LEG_JOINTS = xgo_gait.xgo_joint_names()
 
-# The URDF -> USD import dropped the joint limits: all 15 revolute joints come
-# through with (-inf, inf), which the physics parser rejects with
-#   "revolute joint without a finite limit set. A finite limit is required."
-# The source URDF is not in this repo, so the real hardware travel is unknown.
-# ASSUMPTION: +/- 90 deg, a typical range for the serial bus servos on this class
-# of hobby quadruped. Replace with the true per-joint limits when the URDF is
-# available -- this value affects what gaits are reachable.
-XGO_JOINT_LIMIT_DEG = 90.0
+# Real per-joint travel, from the vendor's xgo_ros driver config
+# (IsaacSim/Robots/mini2_description/reference/xgomini.yaml). These replace an
+# earlier +/-90 deg guess.
+#
+# The joint limits are genuinely absent upstream: the source URDF declares all 15
+# revolute joints as type="continuous" with no <limit>, so the USD is faithful to
+# it and re-importing cannot recover them. The physics parser still rejects
+# infinite limits ("revolute joint without a finite limit set"), so they must be
+# authored before simulation starts.
+#
+# xgo.cpp:162 indexes joint_limit[i % 3] across the 12 leg joints, so all four
+# legs share three pairs ordered by position within the leg. Mapping to the N1/N2/
+# N3 names is inferred from the numeric suffix; the hip (N3, attached to base_link)
+# taking the tightest range is what hip abduction should look like.
+XGO_JOINT_LIMITS_DEG = {
+    "1": (-73.0, 57.0),   # N1, lower leg
+    "2": (-66.0, 93.0),   # N2, upper leg
+    "3": (-31.0, 31.0),   # N3, hip abduction
+}
+# Arm and gripper (51/52/53, 50/500); not used for locomotion, held still.
+XGO_ARM_LIMITS_DEG = {
+    "1": (-90.0, 75.0),
+    "2": (-50.0, 85.0),
+    "3": (-65.0, 65.0),
+}
+XGO_DEFAULT_LIMIT_DEG = (-90.0, 90.0)
 
 # Agent identifiers. The two robots learn independently: separate policies, no
 # shared critic and no parameter sharing (they do not even share an action space).
@@ -79,9 +97,8 @@ XGO_AGENT = "xgo"
 # assumes (see FIXES.md section 14). Learning joint targets directly sidesteps the
 # problem entirely, because the policy discovers whatever convention the asset has.
 XGO_NUM_JOINTS = 12
-# Actions are in [-1, 1] and scale to this fraction of the joint travel, keeping
-# targets inside the authored limits.
-XGO_ACTION_SCALE = math.radians(XGO_JOINT_LIMIT_DEG)
+# Actions in [-1, 1] map onto each joint's own travel, so -1/+1 are exactly the
+# authored limits. Built once in __init__ as centre +/- half-range.
 # Termination thresholds for "the quadruped fell over".
 XGO_MIN_HEIGHT = 0.04
 XGO_MIN_UPRIGHT = 0.5
@@ -328,6 +345,17 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             (torch.cos(angles), torch.sin(angles), torch.zeros_like(angles)), dim=-1
         )
 
+        # Map actions in [-1, 1] onto each leg joint's own travel, so the policy
+        # cannot command a target outside the authored limits.
+        lo = torch.tensor(
+            [math.radians(self._xgo_limit_for(n)[0]) for n in XGO_LEG_JOINTS], device=self.device
+        )
+        hi = torch.tensor(
+            [math.radians(self._xgo_limit_for(n)[1]) for n in XGO_LEG_JOINTS], device=self.device
+        )
+        self._xgo_action_centre = (hi + lo) / 2.0
+        self._xgo_action_range = (hi - lo) / 2.0
+
         # spawn heights, taken from each robot's configured initial state
         self._rover_spawn_z = self.cfg.scene.rover_rb3.init_state.pos[2]
         self._xgo_spawn_z = self.cfg.scene.xgo_lite.init_state.pos[2]
@@ -368,11 +396,22 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             if lower is not None and upper is not None and lower > -1e30 and upper < 1e30:
                 continue
 
-            joint.CreateLowerLimitAttr().Set(-XGO_JOINT_LIMIT_DEG)
-            joint.CreateUpperLimitAttr().Set(XGO_JOINT_LIMIT_DEG)
+            lo, hi = self._xgo_limit_for(str(joint_prim.GetPath()).split("/")[-1])
+            joint.CreateLowerLimitAttr().Set(lo)
+            joint.CreateUpperLimitAttr().Set(hi)
             fixed += 1
 
         return fixed
+
+    @staticmethod
+    def _xgo_limit_for(joint_name: str) -> tuple[float, float]:
+        """Hardware travel in degrees for a USD joint named e.g. 'tn__13_Joint_'."""
+        digits = "".join(c for c in joint_name if c.isdigit())
+        if not digits:
+            return XGO_DEFAULT_LIMIT_DEG
+        leg, index = digits[0], digits[-1]
+        table = XGO_ARM_LIMITS_DEG if leg == "5" else XGO_JOINT_LIMITS_DEG
+        return table.get(index, XGO_DEFAULT_LIMIT_DEG)
 
     def _build_maze_warp_mesh(self, maze_prim):
         """Collect every mesh under the maze prim into a single world-space warp mesh.
@@ -631,7 +670,10 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # ---------------- XGO: direct joint position control ----------------
         # Actions in [-1, 1] map onto the authored joint travel. No IK is involved,
         # so the asset's joint convention does not need to be known.
-        xgo_targets = self.actions[XGO_AGENT].clamp(-1.0, 1.0) * XGO_ACTION_SCALE
+        xgo_targets = (
+            self._xgo_action_centre
+            + self.actions[XGO_AGENT].clamp(-1.0, 1.0) * self._xgo_action_range
+        )
 
         self.xgo_lite.set_joint_position_target_index(
             target=xgo_targets,

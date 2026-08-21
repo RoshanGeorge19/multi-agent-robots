@@ -288,8 +288,8 @@ physics parser rejects outright. The limits are absent from the asset:
 No URDF is present in the repo to recover the true values from.
 
 `_fix_xgo_joint_limits()` now authors finite limits before simulation start.
-**This uses an assumed +/-90 deg** (`XGO_JOINT_LIMIT_DEG`) and should be replaced
-with the real per-joint travel when the URDF is available.
+This originally used an assumed +/-90 deg. **Superseded by section 19**: the real
+per-joint travel now comes from the vendor's driver config.
 
 Result: zero `NewtonMimicAPI` errors, articulation loads as 17 joints / 18 bodies,
 all 12 leg joints resolve, robot settles upright without exploding.
@@ -531,6 +531,63 @@ Episode length (mean)        : 1.7 -> 4.4 steps
 Both agents are learning and the run is numerically stable. Episodes are still
 short because the XGO falls quickly -- it cannot stand yet, which is the open
 locomotion problem, not an environment bug.
+
+
+## 19. The vendor sources: real joint limits, but the URDF does not fix the convention
+
+The `mini2_description` and `xgo_ros` archives were obtained and inspected. The
+outcome contradicted the expectation in section 14, in both directions.
+
+### Re-importing the URDF would not have helped
+
+Section 14 assumed the missing joint limits and the all-Z joint axes were URDF ->
+USD import artifacts. They are not. Read directly from
+`reference/mini2_description.urdf`:
+
+- **All 15 revolute joints are `type="continuous"` with no `<limit>` element.**
+  The limits are absent from the source, so the USD is faithful to it and no
+  re-import can recover them.
+- **Every joint declares `axis = "0 0 1"`.** The importer baked nothing; the URDF
+  itself uses the convention where each axis is local Z and the real orientation
+  lives in the joint's `<origin rpy>`. This is standard SolidWorks URDF exporter
+  output.
+
+So the `LegIK` convention mismatch is inherent to how the robot was authored, and
+re-importing produces the same asset. What the URDF *does* provide is an explicit,
+readable `<origin xyz rpy>` per joint -- the input needed to derive a correct IK,
+which is now a tractable job rather than USD archaeology.
+
+### The ROS driver has the real hardware limits
+
+`xgo_ros/config/xgomini.yaml` carries what the URDF lacks:
+
+```yaml
+joint_limit:  [[-73,57], [-66,93], [-31,31],   # legs, by within-leg index
+               [-65,65], [-50,85], [-90,75]]   # arm
+body_limit:   [..., [75,115], ...]             # body height, mm
+vx_max: 0.3   vy_max: 0.2   vyaw_max: 1.2
+```
+
+`xgo.cpp:162` indexes these as `joint_limit[i % 3]` over the 12 leg joints, so all
+four legs share three pairs ordered by position within the leg (arm joints use
+`joint_limit[i - 9]`).
+
+The **+/-90 deg assumption from section 14 is now gone**, replaced by these values.
+Actions in `[-1, 1]` map onto each joint's own travel, so the policy cannot command
+an out-of-range target. Verified: authored limits read back as `13_Joint [-31, 31]`,
+`12_Joint [-66, 93]`, `11_Joint [-73, 57]`, and driving actions to both rails keeps
+every joint inside its range.
+
+One inference remains, flagged rather than hidden: the SDK does not name its joints,
+so mapping within-leg indices 0/1/2 to `N1`/`N2`/`N3` is read off the numeric
+suffix. It is well supported -- the hip joint `N3`, attached to `base_link`, gets
+the tightest range `[-31, 31]`, exactly what hip abduction should look like.
+
+### Standing height was out of range
+
+`body_limit[2]` puts the real body height at **75-115 mm**, and `xgo.h:53` defaults
+foot height to **108 mm**. `XGOModel.height = 0.13` -- inherited by
+`xgo_gait.STAND_HEIGHT` -- is above what the robot can reach. Now 0.108.
 
 
 ---
