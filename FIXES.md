@@ -590,6 +590,64 @@ foot height to **108 mm**. `XGOModel.height = 0.13` -- inherited by
 `xgo_gait.STAND_HEIGHT` -- is above what the robot can reach. Now 0.108.
 
 
+## 20. Exact kinematics -- from the USD frames, not the URDF
+
+The goal was to derive the IK from the URDF. That does not work, and the reason is
+worth recording: **the USD's joint frames are not a transcription of the URDF's.**
+
+A full FK built from the URDF chain (`<origin xyz rpy>` per joint, composed as
+`Translate * RPY * Rz(q)`) was measured against the running simulation and came out
+**5 cm off**. The conversion re-expressed the joint frames, so URDF-derived angles
+do not mean what the simulator's joint variables mean.
+
+The kinematics are therefore read from the **USD joint frames themselves** --
+`localPos0` / `localRot0` / `localPos1` / `localRot1` -- which is what the physics
+engine actually integrates:
+
+```
+T_parent_child = T(pos0, rot0) @ Rz(q) @ T(pos1, rot1)^-1
+```
+
+One trap cost 0.14 m of error before it was found: **USD `Gf` matrices are
+row-vector convention** (`v' = v * M`), so quaternion-derived rotation matrices
+must be transposed for column-vector math.
+
+### Results
+
+`xgo_kinematics.py` provides batched FK and IK over all four legs:
+
+| check | result |
+| --- | --- |
+| FK vs simulator (16 envs x 4 legs, random poses) | **3.6e-6 m** |
+| IK round trip, 24 iterations, damping 1e-3 | 0.8 mm max, 0.06 mm mean |
+| IK round trip, 50 iterations, damping 1e-4 | 0.02 mm max |
+| unreachable target | stays finite, no NaN |
+| warm-started, 2 iterations, 256 envs | ~40 ms/call (~8% of step time) |
+
+IK is damped least squares rather than closed form: a closed-form solve would need
+the geometry re-derived by hand in this asset's unusual frame convention, whereas
+DLS reuses the verified FK, batches over environments and legs, and degrades
+gracefully on unreachable targets instead of producing NaNs.
+
+Batching the four legs together rather than looping over them in Python cut IK cost
+by 2.4x (670 ms -> 280 ms for 64 envs at 24 iterations).
+
+### What this does not yet give
+
+The FK targets the **last link's origin**, not the foot contact point. The foot
+offset inside that link is still unpinned: the URDF has no foot link, and the
+link's local bounding box spans 0.126 m, which is too long for that segment to read
+off directly. Until it is measured, there is no calibrated standing pose, so the
+XGO still starts from the asset's zero pose and is still driven by learned joint
+targets rather than a gait.
+
+`xgo_gait.py` (the torch port of the shipped `LegIK`) has been **removed**. It was a
+faithful port -- it matched the original to 1.8e-07 -- but the original solver
+assumes a conventional quadruped and cannot drive this asset, so keeping it around
+was a trap. Its one still-valid export, the measured joint-name ordering, now lives
+in `xgo_kinematics.py`.
+
+
 ---
 
 ## Verification

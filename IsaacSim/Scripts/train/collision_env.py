@@ -39,9 +39,7 @@ from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCast
 from isaaclab.utils.math import sample_uniform, quat_apply, quat_apply_inverse, yaw_quat
 from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
-# only the measured joint-name ordering is used; the IK in this module cannot
-# drive this asset (see FIXES.md section 14)
-import xgo_gait
+import xgo_kinematics
 import warp as wp
 from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, Gf
 from omni.physx.scripts import physicsUtils
@@ -58,7 +56,7 @@ XGO_JOINTS_SCOPE = "_ROBOTS_/xgo_lite/Physics"
 # Leg joints in [FL, FR, BL, BR] x [shoulder, elbow, wrist] order, matching the
 # output of the IK. The remaining revolute joints (51/52/53) are the arm and take
 # no part in locomotion.
-XGO_LEG_JOINTS = xgo_gait.xgo_joint_names()
+XGO_LEG_JOINTS = xgo_kinematics.xgo_joint_names()
 
 # Real per-joint travel, from the vendor's xgo_ros driver config
 # (IsaacSim/Robots/mini2_description/reference/xgomini.yaml). These replace an
@@ -158,10 +156,10 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/scene/" + XGO_PATH,
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
-            # Start from the asset's own zero pose rather than the IK stance:
-            # xgo_gait's stance is derived from LegIK, whose joint convention does
-            # not match this asset (FIXES.md section 14), so it would seed a
-            # collapsing pose. The policy learns its own posture from neutral.
+            # Start from the asset's own zero pose. A stance could now be built
+            # with xgo_kinematics (its FK matches the simulator to 1e-6 m), but
+            # the foot offset inside the last link is not yet pinned down, so
+            # there is no calibrated standing pose to seed. See FIXES.md 20.
             pos=(0.0, 0.0, XGO_SPAWN_HEIGHT),
             rot=(0.0, 0.0, 0.0, 1.0),
         ),
