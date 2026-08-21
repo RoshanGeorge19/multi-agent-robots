@@ -29,16 +29,18 @@ import isaaclab
 import isaaclab_physx
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, ArticulationCfg, AssetBaseCfg
-from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.envs import DirectMARLEnv, DirectMARLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils.configclass import configclass
 from isaaclab.sim.schemas import ArticulationRootPropertiesCfg
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns, Camera, CameraCfg
-from isaaclab.utils.math import sample_uniform, quat_apply_inverse, yaw_quat
+from isaaclab.utils.math import sample_uniform, quat_apply, quat_apply_inverse, yaw_quat
 from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
+# only the measured joint-name ordering is used; the IK in this module cannot
+# drive this asset (see FIXES.md section 14)
 import xgo_gait
 import warp as wp
 from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, Gf
@@ -66,6 +68,40 @@ XGO_LEG_JOINTS = xgo_gait.xgo_joint_names()
 # of hobby quadruped. Replace with the true per-joint limits when the URDF is
 # available -- this value affects what gaits are reachable.
 XGO_JOINT_LIMIT_DEG = 90.0
+
+# Agent identifiers. The two robots learn independently: separate policies, no
+# shared critic and no parameter sharing (they do not even share an action space).
+ROVER_AGENT = "rover"
+XGO_AGENT = "xgo"
+
+# The XGO is driven at the joint level rather than through the shipped gait stack.
+# That stack's IK cannot be used: the asset's joint convention is not the one it
+# assumes (see FIXES.md section 14). Learning joint targets directly sidesteps the
+# problem entirely, because the policy discovers whatever convention the asset has.
+XGO_NUM_JOINTS = 12
+# Actions are in [-1, 1] and scale to this fraction of the joint travel, keeping
+# targets inside the authored limits.
+XGO_ACTION_SCALE = math.radians(XGO_JOINT_LIMIT_DEG)
+# Termination thresholds for "the quadruped fell over".
+XGO_MIN_HEIGHT = 0.04
+XGO_MIN_UPRIGHT = 0.5
+# Drop height at spawn. At all-zero joint angles the body settles to ~0.069 m,
+# so this leaves a little clearance without a large fall.
+XGO_SPAWN_HEIGHT = 0.10
+
+# Lidar. IsaacLab 3.0's RayCaster supports only a single static mesh
+# ("Currently, only a single static mesh is supported" -- ray_caster_cfg.py), so
+# mesh_prim_paths=["/World"] silently bound to the first mesh under /World -- an
+# 8-vertex april tag -- and every ray missed the maze forever. The scan is now cast
+# directly against the merged maze mesh with isaaclab.utils.warp.raycast_mesh, the
+# same mesh already built for the spawn search.
+#
+# The old pattern was 16 channels x 16 headings with vertical_fov_range=(0, 0),
+# i.e. 16 unique directions duplicated 16 times. The same budget now buys 256
+# distinct headings.
+LIDAR_NUM_RAYS = 256
+LIDAR_HEIGHT_ROVER = 0.21
+LIDAR_HEIGHT_XGO = 0.10
 
 # <repo>/IsaacSim/Scripts/train/collision_env.py -> <repo>/IsaacSim/multi_agent_robots.usd
 SCENE_USD_PATH = str(Path(__file__).resolve().parents[2] / "multi_agent_robots.usd")
@@ -97,10 +133,12 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/scene/" + XGO_PATH,
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
-            # body sits STAND_HEIGHT above its feet, plus a little settling room
-            pos=(0.0, 0.0, xgo_gait.STAND_HEIGHT + 0.01),
+            # Start from the asset's own zero pose rather than the IK stance:
+            # xgo_gait's stance is derived from LegIK, whose joint convention does
+            # not match this asset (FIXES.md section 14), so it would seed a
+            # collapsing pose. The policy learns its own posture from neutral.
+            pos=(0.0, 0.0, XGO_SPAWN_HEIGHT),
             rot=(0.0, 0.0, 0.0, 1.0),
-            joint_pos=xgo_gait.stance_joint_angles(),
         ),
         actuators={
             # position-controlled legs: the gait generator supplies joint targets
@@ -128,13 +166,28 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
 # -----------------------------------------------------------------------------
 
 @configclass
-class CollisionEnvRB3Cfg(DirectRLEnvCfg):
+class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
     decimation = 4 # nb of physics simulation steps for each RL action
     episode_length_s = 18.0
-    action_space = 2 # linear and angular velocity
-    # [lidar distances (256), linear_velocity, angular_velocity,
-    #  goal x/y in body frame, goal distance]
-    observation_space = 261
+
+    possible_agents = [ROVER_AGENT, XGO_AGENT]
+
+    # The two robots have genuinely different action spaces: the rover takes a
+    # linear/angular velocity command, the XGO takes 12 joint position targets.
+    action_spaces = {
+        ROVER_AGENT: 2,
+        XGO_AGENT: XGO_NUM_JOINTS,
+    }
+
+    # rover: 256 lidar + lin vel + ang vel + goal (x, y, distance)
+    # xgo:   the same, plus proprioception (projected gravity, body velocities,
+    #        joint positions and velocities) which joint-level control needs
+    observation_spaces = {
+        ROVER_AGENT: 261,
+        XGO_AGENT: 256 + 3 + 3 + 3 + XGO_NUM_JOINTS * 2 + 3,
+    }
+
+    # no centralised critic -- these are independent learners
     state_space = 0
 
     linear_scale = 0.25   # m/s
@@ -168,14 +221,20 @@ class CollisionEnvRB3Cfg(DirectRLEnvCfg):
     rew_step = -0.01
     rew_robot_proximity_penalty = -2.0
     rew_wall_collision = -100.0
-    # rew_robot_collision = -100.0
+
+    # XGO-only locomotion shaping. Joint-level control has to learn to stay up
+    # before it can learn to navigate, so staying upright is rewarded directly
+    # and falling ends the episode.
+    rew_xgo_alive = 0.05
+    rew_xgo_fell = -50.0
+    rew_xgo_action_rate = -0.005
 
 
 # -----------------------------------------------------------------------------
 # Environment Creation
 # -----------------------------------------------------------------------------
 
-class CollisionAvoidanceEnv(DirectRLEnv):
+class CollisionAvoidanceEnv(DirectMARLEnv):
 
     cfg: CollisionEnvRB3Cfg
 
@@ -220,11 +279,13 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         print("CONTACT DEVICE NUM:", self.contact_sensor.num_instances)
         print("CONTACT PRIM PATH:", self.contact_sensor.cfg.prim_path)
 
-        print("LIDAR DEVICE:", self.lidar.device)
-        print("LIDAR PRIM PATH:", self.lidar.cfg.prim_path)
+        print(f"LIDAR: {LIDAR_NUM_RAYS} rays/robot cast against the merged maze mesh")
 
         self.goal_pos = torch.zeros((self.num_envs, 2), device=self.device)
         self.previous_distance = torch.zeros(self.num_envs, device=self.device)
+        self.xgo_goal_pos = torch.zeros((self.num_envs, 2), device=self.device)
+        self.xgo_previous_distance = torch.zeros(self.num_envs, device=self.device)
+        self._prev_xgo_actions = torch.zeros((self.num_envs, XGO_NUM_JOINTS), device=self.device)
 
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
@@ -243,15 +304,22 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         )
         print("XGO leg joints:", xgo_leg_names, "->", self._xgo_leg_ids)
 
-        # constant IK inputs, resolved once
-        self._xgo_hip_offsets = xgo_gait.hip_offsets(self.device)
-        self._xgo_side_signs = xgo_gait.side_signs(self.device)
-        self._xgo_stance_feet = xgo_gait.stance_foot_positions(self.device).unsqueeze(0).repeat(
-            self.num_envs, 1, 1
+        # Fixed body-frame ray fan: LIDAR_NUM_RAYS evenly spaced headings in the
+        # horizontal plane, excluding the duplicate wrap point at +pi.
+        angles = torch.linspace(-math.pi, math.pi, LIDAR_NUM_RAYS + 1, device=self.device)[:-1]
+        self._lidar_dirs = torch.stack(
+            (torch.cos(angles), torch.sin(angles), torch.zeros_like(angles)), dim=-1
         )
+
+        # spawn heights, taken from each robot's configured initial state
+        self._rover_spawn_z = self.cfg.scene.rover_rb3.init_state.pos[2]
+        self._xgo_spawn_z = self.cfg.scene.xgo_lite.init_state.pos[2]
+
 
         self.collisions_array = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.xgo_collisions = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.xgo_is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         # per-ray lidar distances, populated by _update_sensor_state()
         self.lidar_distances: torch.Tensor | None = None
 
@@ -357,6 +425,9 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         maze_mesh = self._build_maze_warp_mesh(prim)
         if maze_mesh is None:
             raise RuntimeError("Could not build a warp mesh for the maze -- no readable Mesh prims found.")
+
+        # reused every step by _cast_lidar()
+        self._maze_mesh = maze_mesh
 
         num_candidates = 4000
 
@@ -467,25 +538,23 @@ class CollisionAvoidanceEnv(DirectRLEnv):
             PhysxSchema.PhysxContactReportAPI.Apply(contact_prim)
             print("[INFO] ContactReport API applied")
 
+        for env_id in range(self.cfg.scene.num_envs):
+            xgo_contact_prim = stage.GetPrimAtPath(f"/World/envs/env_{env_id}/scene/{XGO_PATH}")
+            if xgo_contact_prim.IsValid():
+                PhysxSchema.PhysxContactReportAPI.Apply(xgo_contact_prim)
+
         self.scene.sensors["contact_forces"] = self.contact_sensor
 
         # self.scene.clone_environments(copy_from_source=False)
 
-        lidar_cfg = RayCasterCfg(
-            prim_path=f"{env_regex}/scene/{ROVER_PATH}/lidar_link",
-            mesh_prim_paths=["/World"],
+        xgo_contact_cfg = ContactSensorCfg(
+            prim_path=f"{env_regex}/scene/{XGO_PATH}",
             update_period=0.0,
-            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.21)),
-            pattern_cfg=patterns.LidarPatternCfg(
-                channels=16,
-                vertical_fov_range=(0.0, 0.0),
-                horizontal_fov_range=(-180.0, 180.0),
-                horizontal_res=22.5,
-            ),
-            max_distance=self.cfg.lidar_max_distance,
+            history_length=6,
+            track_pose=False,
         )
-        self.lidar = RayCaster(lidar_cfg)
-        self.scene.sensors["lidar"] = self.lidar
+        self.xgo_contact_sensor = ContactSensor(xgo_contact_cfg)
+        self.scene.sensors["xgo_contact_forces"] = self.xgo_contact_sensor
 
         env_regex = self.scene.env_regex_ns
         self.cfg.scene.rover_rb3.prim_path = f"{env_regex}/scene/{ROVER_PATH}"
@@ -511,14 +580,17 @@ class CollisionAvoidanceEnv(DirectRLEnv):
     # Physics
     # -------------------------------------------------------------------------
 
-    def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        self.actions = actions.clone()
+    def _pre_physics_step(self, actions: dict[str, torch.Tensor]) -> None:
+        self.actions = {k: v.clone() for k, v in actions.items()}
 
 
     def _apply_action(self):
+        # ---------------- rover: differential drive ----------------
+        rover_actions = self.actions[ROVER_AGENT]
+
         # policy outputs are in [-1, 1]; scale them to physical command units
-        linear_speed = self.actions[:, 0] * self.cfg.linear_scale    # m/s
-        angular_speed = self.actions[:, 1] * self.cfg.angular_scale  # rad/s
+        linear_speed = rover_actions[:, 0] * self.cfg.linear_scale    # m/s
+        angular_speed = rover_actions[:, 1] * self.cfg.angular_scale  # rad/s
 
         # differential drive: contact-point speed of each side, in m/s
         left_speed = linear_speed - angular_speed * self.wheel_base / 2.0
@@ -530,12 +602,7 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         # order must match self._wheel_ids: [fl, fr, rl, rr]
         wheel_velocities = torch.stack(
-            [
-                left_velocity,
-                right_velocity,
-                left_velocity,
-                right_velocity,
-            ],
+            [left_velocity, right_velocity, left_velocity, right_velocity],
             dim=-1,
         )
 
@@ -544,73 +611,91 @@ class CollisionAvoidanceEnv(DirectRLEnv):
             joint_ids=self._wheel_ids,
         )
 
-        # XGO: hold the neutral stance.
-        #
-        # KNOWN LIMITATION: this does not yet produce a standing robot. The IK is
-        # a faithful port (it matches the original LegIK to 1.8e-7), but the USD's
-        # joint convention is not the one LegIK assumes:
-        #   * at all-zero angles the legs lie flat in the horizontal plane --
-        #     out along +/-y by shoulder_length, then back along -x by
-        #     elbow_length -- whereas LegIK's zero is a leg hanging straight down;
-        #   * every joint axis was baked to local Z by the URDF importer, mapping
-        #     to world Y / -Y / Z for shoulder / elbow / wrist.
-        # Driving LegIK angles into these joints leaves the body at ~0.065 m
-        # instead of the commanded 0.13 m and pitched ~58 deg. Closing this needs
-        # the IK re-derived against the asset's own frame chain (localRot0 /
-        # localRot1), not a unit conversion. See FIXES.md.
-        xgo_joint_targets = xgo_gait.foot_targets_to_joint_targets(
-            self._xgo_stance_feet, self._xgo_hip_offsets, self._xgo_side_signs
-        )
+        # ---------------- XGO: direct joint position control ----------------
+        # Actions in [-1, 1] map onto the authored joint travel. No IK is involved,
+        # so the asset's joint convention does not need to be known.
+        xgo_targets = self.actions[XGO_AGENT].clamp(-1.0, 1.0) * XGO_ACTION_SCALE
+
         self.xgo_lite.set_joint_position_target_index(
-            target=xgo_joint_targets,
+            target=xgo_targets,
             joint_ids=self._xgo_leg_ids,
         )
 
     # -------------------------------------------------------------------------
-    # Observations
+    # Sensor state
     # -------------------------------------------------------------------------
 
     def _update_sensor_state(self) -> None:
-        """Refresh contact / lidar derived state.
+        """Refresh contact / lidar derived state for both robots.
 
-        DirectRLEnv.step() calls _get_dones() and _get_rewards() *before*
-        _get_observations(), so computing this inside _get_observations() left
-        terminations and rewards acting on the previous step's sensor readings.
-        This is called at the top of _get_dones() so both see fresh data, and
-        again from _get_observations() to cover the reset path, where
-        _get_dones() does not run.
+        DirectMARLEnv.step() calls _get_dones() and _get_rewards() *before*
+        _get_observations(), so computing this inside _get_observations() would
+        leave terminations and rewards acting on the previous step's readings.
+        Called at the top of _get_dones(), and again from _get_observations() to
+        cover the reset path where _get_dones() does not run.
         """
-        contact_forces = wp.to_torch(self.contact_sensor.data.net_forces_w)
-        contact_magnitude = torch.linalg.vector_norm(contact_forces, dim=-1)
-        self.collisions_array = (contact_magnitude > 1.0).any(dim=1)
+        self.collisions_array = self._contact_hit(self.contact_sensor)
+        self.xgo_collisions = self._contact_hit(self.xgo_contact_sensor)
 
-        lidar_origin = torch.as_tensor(self.scene["lidar"].data.pos_w, device=self.device)
-        lidar_output = torch.as_tensor(self.scene["lidar"].data.ray_hits_w, device=self.device)
+        self.lidar_distances = self._cast_lidar(self.rover_rb3, LIDAR_HEIGHT_ROVER)
+        self.xgo_lidar_distances = self._cast_lidar(self.xgo_lite, LIDAR_HEIGHT_XGO)
 
-        lidar_distances = torch.linalg.vector_norm(lidar_output - lidar_origin.unsqueeze(1), dim=-1)
+        # NOTE: this measures proximity to *any* lidar return -- walls as well as
+        # the other robot. Separating the two needs per-hit ownership, which the
+        # ray caster does not report; until then wall proximity is penalised both
+        # here and through rew_wall_collision.
+        self.is_too_close = (self.lidar_distances < WALL_MARGIN).any(dim=1)
+        self.xgo_is_too_close = (self.xgo_lidar_distances < WALL_MARGIN).any(dim=1)
 
-        # Rays that hit nothing come back as inf. Feeding inf to the policy produces
-        # NaNs on the first backward pass, so saturate misses at the sensor range.
-        self.lidar_distances = torch.nan_to_num(
-            lidar_distances,
+    def _contact_hit(self, sensor) -> torch.Tensor:
+        forces = wp.to_torch(sensor.data.net_forces_w)
+        return (torch.linalg.vector_norm(forces, dim=-1) > 1.0).any(dim=1)
+
+    def _cast_lidar(self, robot, height: float) -> torch.Tensor:
+        """A planar 360-degree scan from `robot`, cast against the merged maze mesh.
+
+        Replaces the RayCaster sensor, which can only bind to one static mesh and
+        therefore never saw the maze at all.
+        """
+        pos = wp.to_torch(robot.data.root_pos_w)
+        quat = wp.to_torch(robot.data.root_quat_w)
+
+        ray_starts = pos.clone()
+        ray_starts[:, 2] += height
+        ray_starts = ray_starts.unsqueeze(1).expand(-1, LIDAR_NUM_RAYS, 3).contiguous()
+
+        # rotate the fixed body-frame fan by the robot's heading only
+        yaw = yaw_quat(quat).unsqueeze(1).expand(-1, LIDAR_NUM_RAYS, 4).contiguous()
+        ray_dirs = quat_apply(yaw, self._lidar_dirs.unsqueeze(0).expand(self.num_envs, -1, -1).contiguous())
+
+        _, distance, _, _ = raycast_mesh(
+            ray_starts,
+            ray_dirs,
+            self._maze_mesh,
+            max_dist=self.cfg.lidar_max_distance,
+            return_distance=True,
+        )
+
+        # Rays that hit nothing come back as inf. Feeding inf to the policy
+        # produces NaNs on the first backward pass, so saturate at sensor range.
+        return torch.nan_to_num(
+            distance,
             nan=self.cfg.lidar_max_distance,
             posinf=self.cfg.lidar_max_distance,
             neginf=self.cfg.lidar_max_distance,
         ).clamp(0.0, self.cfg.lidar_max_distance)
 
-        # NOTE: this measures proximity to *any* lidar return, which in a
-        # single-robot environment is always a wall. It is applied with
-        # cfg.rew_robot_proximity_penalty; separate the two once a second robot
-        # exists, otherwise wall proximity is penalised twice.
-        self.is_too_close = (self.lidar_distances < WALL_MARGIN).any(dim=1)
+    # -------------------------------------------------------------------------
+    # Observations
+    # -------------------------------------------------------------------------
 
-    def _goal_in_body_frame(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def _goal_in_body_frame(self, robot, goal_pos) -> tuple[torch.Tensor, torch.Tensor]:
         """Goal offset expressed in the robot's own frame, plus its magnitude."""
-        robot_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
-        robot_quat = wp.to_torch(self.rover_rb3.data.root_quat_w)
+        robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
+        robot_quat = wp.to_torch(robot.data.root_quat_w)
 
         goal_relative_w = torch.zeros((self.num_envs, 3), device=self.device)
-        goal_relative_w[:, :2] = self.goal_pos - robot_pos
+        goal_relative_w[:, :2] = goal_pos - robot_pos
 
         # only the heading matters for a ground robot; ignore roll/pitch
         goal_relative_b = quat_apply_inverse(yaw_quat(robot_quat), goal_relative_w)
@@ -619,73 +704,135 @@ class CollisionAvoidanceEnv(DirectRLEnv):
 
         return goal_relative_b[:, :2], distance
 
-    def _get_observations(self) -> dict:
+    def _projected_gravity(self, robot) -> torch.Tensor:
+        """Gravity direction in the body frame -- tells the policy which way is down."""
+        quat = wp.to_torch(robot.data.root_quat_w)
+        gravity_w = torch.zeros((self.num_envs, 3), device=self.device)
+        gravity_w[:, 2] = -1.0
+        return quat_apply_inverse(quat, gravity_w)
+
+    def _get_observations(self) -> dict[str, torch.Tensor]:
         # covers reset(), where _get_dones() has not run
         self._update_sensor_state()
 
-        # body-frame velocities: root_lin_vel_w[:, 0] is the world x component,
-        # which stops being the robot's forward speed as soon as it turns
-        linear_velocity = wp.to_torch(self.rover_rb3.data.root_lin_vel_b)[:, 0]
-        angular_velocity = wp.to_torch(self.rover_rb3.data.root_ang_vel_b)[:, 2]
+        # ---------------- rover ----------------
+        rover_lin = wp.to_torch(self.rover_rb3.data.root_lin_vel_b)[:, 0]
+        rover_ang = wp.to_torch(self.rover_rb3.data.root_ang_vel_b)[:, 2]
+        rover_goal_xy, rover_goal_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
 
-        # Without this the policy cannot perceive the goal it is rewarded for
-        # reaching, and the task is unlearnable.
-        goal_relative_b, goal_distance = self._goal_in_body_frame()
-
-        obs = torch.cat(
+        rover_obs = torch.cat(
             (
                 self.lidar_distances.reshape(self.num_envs, -1),
-                linear_velocity.unsqueeze(-1),
-                angular_velocity.unsqueeze(-1),
-                goal_relative_b,
-                goal_distance.unsqueeze(-1),
+                rover_lin.unsqueeze(-1),
+                rover_ang.unsqueeze(-1),
+                rover_goal_xy,
+                rover_goal_dist.unsqueeze(-1),
             ),
             dim=-1,
         )
 
-        return { "policy": obs }
+        # ---------------- XGO ----------------
+        # Joint-level control needs proprioception: the policy has to sense its own
+        # posture and orientation to keep the body up, which a velocity-commanded
+        # wheeled base never has to do.
+        xgo_goal_xy, xgo_goal_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
+
+        xgo_obs = torch.cat(
+            (
+                self.xgo_lidar_distances.reshape(self.num_envs, -1),
+                self._projected_gravity(self.xgo_lite),
+                wp.to_torch(self.xgo_lite.data.root_lin_vel_b),
+                wp.to_torch(self.xgo_lite.data.root_ang_vel_b),
+                wp.to_torch(self.xgo_lite.data.joint_pos)[:, self._xgo_leg_ids],
+                wp.to_torch(self.xgo_lite.data.joint_vel)[:, self._xgo_leg_ids],
+                xgo_goal_xy,
+                xgo_goal_dist.unsqueeze(-1),
+            ),
+            dim=-1,
+        )
+
+        return {ROVER_AGENT: rover_obs, XGO_AGENT: xgo_obs}
 
     # -------------------------------------------------------------------------
     # Rewards
     # -------------------------------------------------------------------------
 
-    def _get_rewards(self) -> torch.Tensor:
-
-        _, current_distance = self._goal_in_body_frame()
-
-        progress = self.previous_distance - current_distance
-        # TODO global variable
-        goal_reached = current_distance < 0.15
-
-        progress_rew = self.cfg.rew_gets_closer_to_goal * progress
-        goal_rew = goal_reached.float() * self.cfg.rew_reach_goal
-        collision_rew = self.collisions_array.float() * self.cfg.rew_wall_collision
-        proximity_rew = self.is_too_close.float() * self.cfg.rew_robot_proximity_penalty
+    def _get_rewards(self) -> dict[str, torch.Tensor]:
         step_rew = torch.full((self.num_envs,), self.cfg.rew_step, device=self.device)
 
-        total_reward = goal_rew + progress_rew + collision_rew + proximity_rew + step_rew
-        self.previous_distance = current_distance
+        # ---------------- rover ----------------
+        _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
 
-        return total_reward
+        rover_reward = (
+            (rover_dist < 0.15).float() * self.cfg.rew_reach_goal
+            + self.cfg.rew_gets_closer_to_goal * (self.previous_distance - rover_dist)
+            + self.collisions_array.float() * self.cfg.rew_wall_collision
+            + self.is_too_close.float() * self.cfg.rew_robot_proximity_penalty
+            + step_rew
+        )
+        self.previous_distance = rover_dist
+
+        # ---------------- XGO ----------------
+        _, xgo_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
+
+        # Staying upright is rewarded on its own: a joint-level policy has to solve
+        # standing before goal progress can mean anything.
+        upright = self._upright_measure(self.xgo_lite)
+        alive = (~self._xgo_has_fallen()).float() * self.cfg.rew_xgo_alive
+
+        action_rate = torch.linalg.vector_norm(
+            self.actions[XGO_AGENT] - self._prev_xgo_actions, dim=-1
+        ) * self.cfg.rew_xgo_action_rate
+        self._prev_xgo_actions = self.actions[XGO_AGENT].clone()
+
+        xgo_reward = (
+            (xgo_dist < 0.15).float() * self.cfg.rew_reach_goal
+            + self.cfg.rew_gets_closer_to_goal * (self.xgo_previous_distance - xgo_dist)
+            + self.xgo_collisions.float() * self.cfg.rew_wall_collision
+            + self.xgo_is_too_close.float() * self.cfg.rew_robot_proximity_penalty
+            + alive
+            + upright * self.cfg.rew_xgo_alive
+            + self._xgo_has_fallen().float() * self.cfg.rew_xgo_fell
+            + action_rate
+            + step_rew
+        )
+        self.xgo_previous_distance = xgo_dist
+
+        return {ROVER_AGENT: rover_reward, XGO_AGENT: xgo_reward}
 
     # -------------------------------------------------------------------------
     # Termination
     # -------------------------------------------------------------------------
 
-    def _get_dones(self):
+    def _upright_measure(self, robot) -> torch.Tensor:
+        """1.0 when the body's up axis is vertical, 0 when horizontal."""
+        quat = wp.to_torch(robot.data.root_quat_w)
+        return 1.0 - 2.0 * (quat[:, 0] ** 2 + quat[:, 1] ** 2)
+
+    def _xgo_has_fallen(self) -> torch.Tensor:
+        height = wp.to_torch(self.xgo_lite.data.root_pos_w)[:, 2]
+        env_z = self.scene.env_origins[:, 2]
+        return ((height - env_z) < XGO_MIN_HEIGHT) | (
+            self._upright_measure(self.xgo_lite) < XGO_MIN_UPRIGHT
+        )
+
+    def _get_dones(self) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         # runs before _get_rewards() and _get_observations(), so refresh here to
         # keep terminations and rewards on the current step's sensor data
         self._update_sensor_state()
 
-        _, current_distance = self._goal_in_body_frame()
-        goal_reached = current_distance < 0.15
+        _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
+        rover_terminated = self.collisions_array | (rover_dist < 0.15)
 
-        has_collided = self.collisions_array
+        _, xgo_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
+        xgo_terminated = self.xgo_collisions | (xgo_dist < 0.15) | self._xgo_has_fallen()
 
-        terminated = (has_collided | goal_reached)
-        time_out = (self.episode_length_buf >= self.max_episode_length - 1)
+        time_out = self.episode_length_buf >= self.max_episode_length - 1
 
-        return terminated, time_out
+        return (
+            {ROVER_AGENT: rover_terminated, XGO_AGENT: xgo_terminated},
+            {ROVER_AGENT: time_out, XGO_AGENT: time_out},
+        )
 
     # -------------------------------------------------------------------------
     # Reset
@@ -695,65 +842,93 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self.rover_rb3._ALL_INDICES
 
-        env_ids = torch.as_tensor(
-            env_ids,
-            device=self.device,
-            dtype=torch.long,
-        )
+        env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
 
         super()._reset_idx(env_ids)
 
-        # choose a random position from the list of precomputed valid positions for each env
-        indices = torch.randint(
-            0,
-            self.spawn_points.shape[0],
-            (len(env_ids),),
-            device=self.device,
-        )
+        n = len(env_ids)
+        origins = self.scene.env_origins[env_ids, :2]
 
-        # spawn points are stored in env-local coordinates -> re-base onto each env
-        next_spawn_positions = self.spawn_points[indices] + self.scene.env_origins[env_ids, :2]
+        # Four independent draws from the validated free-space set: a spawn and a
+        # goal for each robot. Drawing separately means the pair can still land
+        # close together, which is what makes robot-robot avoidance a real problem;
+        # _resample_far_enough only rules out spawning literally on top of one
+        # another.
+        rover_spawn = self._sample_spawn(n)
+        xgo_spawn = self._resample_far_enough(rover_spawn, self._sample_spawn(n))
+        rover_goal = self._sample_spawn(n)
+        xgo_goal = self._sample_spawn(n)
 
-        # random robot orientation
-        yaw = torch.rand(len(env_ids), device=self.device) * 2.0 * math.pi 
+        self._place_robot(self.rover_rb3, env_ids, rover_spawn + origins, self._rover_spawn_z)
+        self._place_robot(self.xgo_lite, env_ids, xgo_spawn + origins, self._xgo_spawn_z)
 
-        root_pose = torch.zeros((len(env_ids), 7), device=self.device, dtype=torch.float32)
-
-        init_rb3 = self.cfg.scene.rover_rb3.init_state.pos[2]
-        root_pose[:, 0:2] = next_spawn_positions
-        root_pose[:, 2] = init_rb3
-
-        # IsaacLab 3.x quaternion order is (x, y, z, w) -- yaw is a rotation about Z
-        root_pose[:, 3] = 0.0                   # X
-        root_pose[:, 4] = 0.0                   # Y
-        root_pose[:, 5] = torch.sin(yaw / 2.0)  # Z
-        root_pose[:, 6] = torch.cos(yaw / 2.0)  # W
-
-        root_vel = torch.zeros((len(env_ids), 6), device=self.device, dtype=torch.float32)
-
-        self.rover_rb3.write_root_pose_to_sim(root_pose, env_ids)        
-        self.rover_rb3.write_root_velocity_to_sim(root_vel, env_ids)
-
-        zero_joint_vel = torch.zeros((len(env_ids), self.rover_rb3.num_joints), device=self.device)
-        self.rover_rb3.write_joint_velocity_to_sim_index(velocity=zero_joint_vel, joint_ids=None, env_ids=env_ids)
-
-        self.rover_rb3.write_data_to_sim()
-
-        # Sample the goal from the same validated free-space set as the spawn, so it is
-        # always reachable. The maze is not centred on the env origin, so the previous
-        # hardcoded [WALL_MARGIN, 4 - WALL_MARGIN] box fell outside it entirely.
-        goal_indices = torch.randint(
-            0,
-            self.spawn_points.shape[0],
-            (len(env_ids),),
-            device=self.device,
-        )
-        self.goal_pos[env_ids] = self.spawn_points[goal_indices] + self.scene.env_origins[env_ids, :2]
+        self.goal_pos[env_ids] = rover_goal + origins
+        self.xgo_goal_pos[env_ids] = xgo_goal + origins
 
         self.previous_distance[env_ids] = torch.linalg.vector_norm(
-            self.goal_pos[env_ids] - next_spawn_positions, dim=-1
+            self.goal_pos[env_ids] - (rover_spawn + origins), dim=-1
         )
+        self.xgo_previous_distance[env_ids] = torch.linalg.vector_norm(
+            self.xgo_goal_pos[env_ids] - (xgo_spawn + origins), dim=-1
+        )
+
+        self._prev_xgo_actions[env_ids] = 0.0
 
         self.collisions_array[env_ids] = False
         self.is_too_close[env_ids] = False
-        # self.robot_collision[env_ids] = False
+        self.xgo_collisions[env_ids] = False
+        self.xgo_is_too_close[env_ids] = False
+
+    def _sample_spawn(self, n: int) -> torch.Tensor:
+        """n env-local (x, y) positions drawn from the validated free-space set."""
+        idx = torch.randint(0, self.spawn_points.shape[0], (n,), device=self.device)
+        return self.spawn_points[idx]
+
+    def _resample_far_enough(
+        self, first: torch.Tensor, second: torch.Tensor, min_separation: float = 0.4
+    ) -> torch.Tensor:
+        """Redraw any point that landed on top of `first`.
+
+        Bounded retries rather than a while loop: in a small maze there may be no
+        valid pair at all, and a loop would hang the reset. Any still-overlapping
+        point is nudged away as a fallback so two robots never start interpenetrating.
+        """
+        for _ in range(8):
+            too_close = torch.linalg.vector_norm(second - first, dim=-1) < min_separation
+            if not bool(too_close.any()):
+                return second
+            redraw = self._sample_spawn(int(too_close.sum()))
+            second = second.clone()
+            second[too_close] = redraw
+
+        offset = torch.nn.functional.normalize(second - first, dim=-1, eps=1e-6) * min_separation
+        still_close = torch.linalg.vector_norm(second - first, dim=-1) < min_separation
+        second = second.clone()
+        second[still_close] = first[still_close] + offset[still_close]
+        return second
+
+    def _place_robot(self, robot, env_ids, xy: torch.Tensor, spawn_z: float) -> None:
+        """Teleport a robot to `xy` with a random yaw and zeroed velocities."""
+        n = len(env_ids)
+        yaw = torch.rand(n, device=self.device) * 2.0 * math.pi
+
+        root_pose = torch.zeros((n, 7), device=self.device, dtype=torch.float32)
+        root_pose[:, 0:2] = xy
+        root_pose[:, 2] = spawn_z
+
+        # IsaacLab 3.x quaternion order is (x, y, z, w) -- yaw is a rotation about Z
+        root_pose[:, 3] = 0.0
+        root_pose[:, 4] = 0.0
+        root_pose[:, 5] = torch.sin(yaw / 2.0)
+        root_pose[:, 6] = torch.cos(yaw / 2.0)
+
+        robot.write_root_pose_to_sim(root_pose, env_ids)
+        robot.write_root_velocity_to_sim(
+            torch.zeros((n, 6), device=self.device, dtype=torch.float32), env_ids
+        )
+        robot.write_joint_velocity_to_sim_index(
+            velocity=torch.zeros((n, robot.num_joints), device=self.device),
+            joint_ids=None,
+            env_ids=env_ids,
+        )
+        robot.write_data_to_sim()

@@ -70,16 +70,18 @@ if __name__ == "__main__":
     print("training...")
     steps_done = 0
     for step in range(steps):
-        actions = torch.zeros(
-            (
-                base_env.num_envs,
-                base_env.cfg.action_space,
-            ),
-            device=base_env.device,
-        )
+        # DirectMARLEnv takes a dict of actions keyed by agent id, and the two
+        # robots have different action space sizes.
+        actions = {
+            agent: torch.zeros(
+                (base_env.num_envs, base_env.cfg.action_spaces[agent]),
+                device=base_env.device,
+            )
+            for agent in base_env.possible_agents
+        }
 
-        # terminated / truncated are per-env tensors; DirectRLEnv resets finished
-        # envs itself, so there is no manual reset to do here.
+        # terminated / truncated are per-agent dicts of per-env tensors;
+        # DirectMARLEnv resets finished envs itself.
         obs, reward, terminated, truncated, info = env.step(actions)
 
         steps_done += 1
@@ -87,6 +89,14 @@ if __name__ == "__main__":
     elapsed = (time.perf_counter() - start_time)
 
     simulated_seconds = (steps * base_env.cfg.decimation * base_env.cfg.sim.dt)
+
+    print()
+    print("Agents:", base_env.possible_agents)
+    for agent in base_env.possible_agents:
+        print(
+            f"  {agent}: obs {base_env.cfg.observation_spaces[agent]}"
+            f"  act {base_env.cfg.action_spaces[agent]}"
+        )
 
     print()
     print("========== BENCHMARK ==========")

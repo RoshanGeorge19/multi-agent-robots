@@ -345,6 +345,74 @@ the missing joint limits, and is probably the better fix if the URDF can be foun
   proximity/collision detection -- the actual point of the exercise, and still
   impossible while only one robot moves.
 
+## 15. Two independent agents (DirectMARLEnv)
+
+`DirectRLEnv` -> `DirectMARLEnv` with `possible_agents = ["rover", "xgo"]`, both
+robots sharing each env so they can actually collide. They are **independent
+learners**: separate policies, no shared critic, no parameter sharing, and
+`state_space = 0`. They do not even share an action space.
+
+| agent | action space | observation space |
+| --- | --- | --- |
+| rover | 2 (linear, angular velocity) | 261 |
+| xgo | 12 (joint position targets) | 292 |
+
+The XGO is driven at the **joint level** rather than through the shipped gait
+stack. That stack cannot drive this asset (section 14), and learning joint targets
+sidesteps the problem entirely: the policy discovers whatever convention the asset
+has. Its observation adds the proprioception joint control needs -- projected
+gravity, body linear and angular velocity, joint positions and velocities -- which
+a velocity-commanded wheeled base never requires.
+
+XGO-specific reward and termination shaping was added because a joint-level policy
+has to solve standing before goal progress means anything: an alive/upright bonus,
+a large penalty for falling, an action-rate penalty for smoothness, and termination
+when the body drops below `XGO_MIN_HEIGHT` or tips past `XGO_MIN_UPRIGHT`.
+
+Note on reset semantics: `DirectMARLEnv` resets an env only when **all** agents are
+done (`reset_buf = prod(terminated) | prod(time_out)`), so one robot finishing does
+not cut the other's episode short.
+
+Reset now draws four independent points from the validated free-space set -- a
+spawn and a goal per robot -- with `_resample_far_enough` rejecting only pairs that
+would start on top of each other. Bounded retries rather than a `while` loop,
+because in a small maze there may be no valid pair and a loop would hang the reset.
+
+## 16. The lidar never saw anything
+
+The single most consequential bug found so far, and it was silent.
+
+`RayCasterCfg(mesh_prim_paths=["/World"])` looks like "ray cast against the whole
+scene". It is not. IsaacLab 3.0's ray caster states plainly in
+`ray_caster_cfg.py`: *"Currently, only a single static mesh is supported."* The
+config therefore bound to the **first** mesh found under `/World` -- visible in
+every run log as:
+
+```
+[INFO]: Read mesh prim: /World/envs/env_0/scene/_MAZE_/april_tag_origin
+        with 8 vertices and 24 faces.
+```
+
+An 8-vertex april tag. Every one of the 256 rays missed the maze on every step, so
+the lidar returned a constant `10.0` (the saturation value from section 5). 256 of
+the rover's 261 observations were a constant. The policy had **no obstacle
+perception at all**, which for a collision-avoidance task means the central signal
+was absent while everything still looked healthy -- shapes correct, values finite.
+
+Measured before the fix: driving the rover flat out into walls for 250 steps, the
+minimum lidar range ever observed was `10.0000`. Contact forces peaked at 362 N over
+the same run, so the robot was demonstrably hitting walls the lidar could not see.
+
+The scan is now cast directly with `isaaclab.utils.warp.raycast_mesh` against the
+merged maze mesh already built for the spawn search (27,755 vertices / 55,242
+triangles), replacing the `RayCaster` sensors entirely. After the fix the same test
+reports a minimum range of `0.1058 m`.
+
+While replacing it: the old pattern was 16 channels x 16 headings with
+`vertical_fov_range=(0, 0)`, i.e. 16 unique directions duplicated 16 times. The
+same 256-value budget now buys **256 distinct headings**.
+
+
 ---
 
 ## Verification
