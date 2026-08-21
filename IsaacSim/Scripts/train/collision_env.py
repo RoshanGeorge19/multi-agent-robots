@@ -89,6 +89,14 @@ XGO_MIN_UPRIGHT = 0.5
 # so this leaves a little clearance without a large fall.
 XGO_SPAWN_HEIGHT = 0.10
 
+# Success radius, and the minimum spawn-to-goal distance. Without the latter a
+# goal can be drawn inside the success radius, so the episode is already solved at
+# reset -- measured at 5/64 envs for the rover before this was enforced. Those
+# instant terminations give PPO near-zero-length episodes and degenerate advantage
+# statistics.
+GOAL_REACHED_RADIUS = 0.15
+MIN_SPAWN_GOAL_DISTANCE = 0.75
+
 # Lidar. IsaacLab 3.0's RayCaster supports only a single static mesh
 # ("Currently, only a single static mesh is supported" -- ray_caster_cfg.py), so
 # mesh_prim_paths=["/World"] silently bound to the first mesh under /World -- an
@@ -187,8 +195,13 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
         XGO_AGENT: 256 + 3 + 3 + 3 + XGO_NUM_JOINTS * 2 + 3,
     }
 
-    # no centralised critic -- these are independent learners
-    state_space = 0
+    # IPPO is an independent learner and never reads a joint state, so 0 ("build
+    # no state space") would be the honest value. skrl's Runner builds models
+    # generically and cannot handle a zero-dimensional space, so use -1
+    # (concatenate every agent's observations), which is what IsaacLab's own MARL
+    # reference task does. The buffer is built but unused by IPPO, and it is what
+    # MAPPO would need if a centralised critic is ever wanted.
+    state_space = -1
 
     linear_scale = 0.25   # m/s
     angular_scale = 0.5   # rad/s
@@ -768,7 +781,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
 
         rover_reward = (
-            (rover_dist < 0.15).float() * self.cfg.rew_reach_goal
+            (rover_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
             + self.cfg.rew_gets_closer_to_goal * (self.previous_distance - rover_dist)
             + self.collisions_array.float() * self.cfg.rew_wall_collision
             + self.is_too_close.float() * self.cfg.rew_robot_proximity_penalty
@@ -790,7 +803,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._prev_xgo_actions = self.actions[XGO_AGENT].clone()
 
         xgo_reward = (
-            (xgo_dist < 0.15).float() * self.cfg.rew_reach_goal
+            (xgo_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
             + self.cfg.rew_gets_closer_to_goal * (self.xgo_previous_distance - xgo_dist)
             + self.xgo_collisions.float() * self.cfg.rew_wall_collision
             + self.xgo_is_too_close.float() * self.cfg.rew_robot_proximity_penalty
@@ -826,15 +839,29 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._update_sensor_state()
 
         _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
-        rover_terminated = self.collisions_array | (rover_dist < 0.15)
+        rover_terminated = self.collisions_array | (rover_dist < GOAL_REACHED_RADIUS)
 
         _, xgo_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
-        xgo_terminated = self.xgo_collisions | (xgo_dist < 0.15) | self._xgo_has_fallen()
+        xgo_terminated = self.xgo_collisions | (xgo_dist < GOAL_REACHED_RADIUS) | self._xgo_has_fallen()
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
+        # Shared episode boundary. DirectMARLEnv resets an env only once *every*
+        # agent is done (reset_buf = prod(terminated) | prod(time_out)), so an agent
+        # that finishes early keeps being stepped: a rover parked against a wall was
+        # taking rew_wall_collision every step for the rest of the episode, driving
+        # mean return from -100 to -3000 while learning nothing.
+        #
+        # Masking the dead agent's reward instead is worse -- it makes most of the
+        # batch exactly zero, and the near-zero advantage variance sends PPO to NaN.
+        #
+        # Ending the episode for both robots when either one finishes matches how
+        # the environment already behaves: a single episode_length_buf, and a reset
+        # that repositions both robots together.
+        shared_terminated = rover_terminated | xgo_terminated
+
         return (
-            {ROVER_AGENT: rover_terminated, XGO_AGENT: xgo_terminated},
+            {ROVER_AGENT: shared_terminated, XGO_AGENT: shared_terminated},
             {ROVER_AGENT: time_out, XGO_AGENT: time_out},
         )
 
@@ -860,8 +887,14 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # another.
         rover_spawn = self._sample_spawn(n)
         xgo_spawn = self._resample_far_enough(rover_spawn, self._sample_spawn(n))
-        rover_goal = self._sample_spawn(n)
-        xgo_goal = self._sample_spawn(n)
+        # A goal drawn inside the success radius would make the episode already
+        # solved at reset, so keep goals a real distance from their spawn.
+        rover_goal = self._resample_far_enough(
+            rover_spawn, self._sample_spawn(n), MIN_SPAWN_GOAL_DISTANCE
+        )
+        xgo_goal = self._resample_far_enough(
+            xgo_spawn, self._sample_spawn(n), MIN_SPAWN_GOAL_DISTANCE
+        )
 
         self._place_robot(self.rover_rb3, env_ids, rover_spawn + origins, self._rover_spawn_z)
         self._place_robot(self.xgo_lite, env_ids, xgo_spawn + origins, self._xgo_spawn_z)
@@ -882,6 +915,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self.is_too_close[env_ids] = False
         self.xgo_collisions[env_ids] = False
         self.xgo_is_too_close[env_ids] = False
+
 
     def _sample_spawn(self, n: int) -> torch.Tensor:
         """n env-local (x, y) positions drawn from the validated free-space set."""

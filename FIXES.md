@@ -460,6 +460,79 @@ directly, neither attempted here:
   per-call CPU overhead may simply be higher here than on x86.
 
 
+## 18. Training: IPPO via skrl
+
+`train_rl.py` trains both robots with **IPPO** (independent PPO) from skrl 2.1.0,
+configured by `agents/skrl_ippo_cfg.yaml`. IPPO is the right fit: each agent keeps
+its own policy and its own critic, no shared critic, no parameter sharing. Verified
+from a checkpoint -- the saved networks are genuinely independent and correctly
+sized per agent:
+
+```
+rover  policy: 261 -> 256 -> 128 -> 64 -> 2
+xgo    policy: 292 -> 256 -> 128 -> 64 -> 12
+```
+
+`train.py` remains the benchmark / smoke-test harness.
+
+Three things had to be fixed to get a numerically stable run.
+
+### state_space must be -1, not 0
+
+`state_space = 0` ("build no state space") is the honest value for IPPO, which
+never reads a joint state. But skrl's `Runner` builds models generically and dies
+on a zero-dimensional space:
+
+```
+RuntimeError: cannot reshape tensor of 0 elements into shape [-1, 0]
+```
+
+`-1` (concatenate every agent's observations) is what IsaacLab's own MARL reference
+task uses. The buffer is built but unused by IPPO, and it is what MAPPO would need
+if a centralised critic is ever wanted.
+
+### Goals could spawn inside the success radius
+
+Goals were drawn from the free-space set with no minimum distance from the spawn,
+so an episode could begin already solved -- measured at 5/64 envs for the rover.
+Those instant terminations gave PPO near-zero-length episodes (mean episode length
+**1.09 steps**), and the resulting degenerate advantage statistics drove the XGO's
+policy, value and entropy losses to `NaN`.
+
+`MIN_SPAWN_GOAL_DISTANCE = 0.75` now applies, reusing `_resample_far_enough`. Mean
+episode length went to ~79 steps and the NaNs disappeared.
+
+### Terminated agents kept accruing penalties
+
+`DirectMARLEnv` resets an env only once **every** agent is done
+(`reset_buf = prod(terminated) | prod(time_out)`), so an agent that finishes early
+keeps being stepped. A rover parked against a wall took `rew_wall_collision` every
+step for the rest of the episode, driving mean return from -100 to **-3081** while
+learning nothing.
+
+Masking the dead agent's reward to zero was tried first and is **worse**: it makes
+most of the batch exactly zero, and the near-zero advantage variance sends PPO
+straight back to NaN.
+
+The fix is a shared episode boundary -- when either robot finishes, the episode
+ends for both. That matches how the environment already behaves: one
+`episode_length_buf`, and a reset that repositions both robots together.
+
+### Measured after the fixes (128 envs, 300 timesteps)
+
+```
+NaN tags                     : NONE
+Value loss (rover)           : 0.472 -> 0.250
+Value loss (xgo)             : 3.655 -> 0.439
+Total reward (mean)          : -58.0 -> -52.8
+Episode length (mean)        : 1.7 -> 4.4 steps
+```
+
+Both agents are learning and the run is numerically stable. Episodes are still
+short because the XGO falls quickly -- it cannot stand yet, which is the open
+locomotion problem, not an environment bug.
+
+
 ---
 
 ## Verification
@@ -486,9 +559,11 @@ These are **not** fixed here.
 - **Throughput is low.** ~14–17 steps/s at 4 envs, roughly 0.5× real-time. Expected
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
-- **No learning algorithm is attached.** Everything above steps a zero/constant
-  action policy. The env is in a shape that can feed rsl_rl / skrl / RL-Games, but
-  wiring one up is still to do.
+- **The XGO has not learned to stand, let alone walk.** Joint-level control is
+  wired and training is stable, but episodes end in ~4 steps because it falls.
+  Learning locomotion and navigation from one reward is optimistic; a
+  locomotion-first curriculum (flat ground, no goal term, reward for staying up)
+  is the likely next step.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out
