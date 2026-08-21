@@ -39,6 +39,7 @@ from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCast
 from isaaclab.utils.math import sample_uniform, quat_apply_inverse, yaw_quat
 from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
+import xgo_gait
 import warp as wp
 from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, Gf
 from omni.physx.scripts import physicsUtils
@@ -52,9 +53,10 @@ ROVER_PATH = "_ROBOTS_/rover_rb3/Geometry/world/base_link"
 XGO_PATH = "_ROBOTS_/xgo_lite/Geometry/world/base_link"
 XGO_JOINTS_SCOPE = "_ROBOTS_/xgo_lite/Physics"
 
-# Leg joints, named <leg><index>: legs 1-4, three joints each. The remaining
-# revolute joints (51/52/53) are the arm and are not used for locomotion.
-XGO_LEG_JOINTS = [f"{leg}{idx}_Joint" for leg in (1, 2, 3, 4) for idx in (1, 2, 3)]
+# Leg joints in [FL, FR, BL, BR] x [shoulder, elbow, wrist] order, matching the
+# output of the IK. The remaining revolute joints (51/52/53) are the arm and take
+# no part in locomotion.
+XGO_LEG_JOINTS = xgo_gait.xgo_joint_names()
 
 # The URDF -> USD import dropped the joint limits: all 15 revolute joints come
 # through with (-inf, inf), which the physics parser rejects with
@@ -95,13 +97,15 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/scene/" + XGO_PATH,
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0.0, 0.12),
+            # body sits STAND_HEIGHT above its feet, plus a little settling room
+            pos=(0.0, 0.0, xgo_gait.STAND_HEIGHT + 0.01),
             rot=(0.0, 0.0, 0.0, 1.0),
+            joint_pos=xgo_gait.stance_joint_angles(),
         ),
         actuators={
             # position-controlled legs: the gait generator supplies joint targets
             "legs": ImplicitActuatorCfg(
-                joint_names_expr=[f"tn__{n}_" for n in XGO_LEG_JOINTS],
+                joint_names_expr=XGO_LEG_JOINTS,
                 stiffness=20.0,
                 damping=0.5,
             ),
@@ -233,6 +237,18 @@ class CollisionAvoidanceEnv(DirectRLEnv):
             preserve_order=True,
         )
         print("Wheel joints:", self._wheel_names, "->", self._wheel_ids)
+
+        self._xgo_leg_ids, xgo_leg_names = self.xgo_lite.find_joints(
+            XGO_LEG_JOINTS, preserve_order=True
+        )
+        print("XGO leg joints:", xgo_leg_names, "->", self._xgo_leg_ids)
+
+        # constant IK inputs, resolved once
+        self._xgo_hip_offsets = xgo_gait.hip_offsets(self.device)
+        self._xgo_side_signs = xgo_gait.side_signs(self.device)
+        self._xgo_stance_feet = xgo_gait.stance_foot_positions(self.device).unsqueeze(0).repeat(
+            self.num_envs, 1, 1
+        )
 
         self.collisions_array = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -526,6 +542,28 @@ class CollisionAvoidanceEnv(DirectRLEnv):
         self.rover_rb3.set_joint_velocity_target_index(
             target=wheel_velocities,
             joint_ids=self._wheel_ids,
+        )
+
+        # XGO: hold the neutral stance.
+        #
+        # KNOWN LIMITATION: this does not yet produce a standing robot. The IK is
+        # a faithful port (it matches the original LegIK to 1.8e-7), but the USD's
+        # joint convention is not the one LegIK assumes:
+        #   * at all-zero angles the legs lie flat in the horizontal plane --
+        #     out along +/-y by shoulder_length, then back along -x by
+        #     elbow_length -- whereas LegIK's zero is a leg hanging straight down;
+        #   * every joint axis was baked to local Z by the URDF importer, mapping
+        #     to world Y / -Y / Z for shoulder / elbow / wrist.
+        # Driving LegIK angles into these joints leaves the body at ~0.065 m
+        # instead of the commanded 0.13 m and pitched ~58 deg. Closing this needs
+        # the IK re-derived against the asset's own frame chain (localRot0 /
+        # localRot1), not a unit conversion. See FIXES.md.
+        xgo_joint_targets = xgo_gait.foot_targets_to_joint_targets(
+            self._xgo_stance_feet, self._xgo_hip_offsets, self._xgo_side_signs
+        )
+        self.xgo_lite.set_joint_position_target_index(
+            target=xgo_joint_targets,
+            joint_ids=self._xgo_leg_ids,
         )
 
     # -------------------------------------------------------------------------

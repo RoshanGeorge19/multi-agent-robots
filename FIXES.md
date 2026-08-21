@@ -272,6 +272,79 @@ were initialised and never read. In `_get_rewards`, `collision_rew` and
 by the second. All removed.
 
 
+## 14. Second agent (XGO): what works and what is blocked
+
+The project goal is two robots. The XGO quadruped was previously deactivated in
+`_setup_scene`; it is now simulated, but it is **not yet drivable** via the gait
+stack that ships in this repo. This section records why, because the reason is
+not obvious and it changes the cost of finishing the job.
+
+### Fixed: joint limits
+
+The URDF -> USD conversion left all 15 revolute joints at `(-inf, inf)`, which the
+physics parser rejects outright. The limits are absent from the asset:
+`payloads/Physics/physx.usda` only sublayers `physics.usda` and adds
+`PhysxJointAPI`, and `physics.usda` authors just two limit attributes, both zero.
+No URDF is present in the repo to recover the true values from.
+
+`_fix_xgo_joint_limits()` now authors finite limits before simulation start.
+**This uses an assumed +/-90 deg** (`XGO_JOINT_LIMIT_DEG`) and should be replaced
+with the real per-joint travel when the URDF is available.
+
+Result: zero `NewtonMimicAPI` errors, articulation loads as 17 joints / 18 bodies,
+all 12 leg joints resolve, robot settles upright without exploding.
+
+### Fixed: batched kinematics
+
+`quadruped_leg_kinematics.LegIK` is scalar numpy solving one leg at a time, which
+cannot drive a vectorised env. `xgo_gait.py` is a torch port, batched over
+environments and legs. It **agrees with the original to 1.8e-07** over random
+targets, and additionally stays finite on out-of-reach targets where the original
+returns NaN (its domain and negative-sqrt guards become clamps).
+
+The geometry constants were read back out of the USD joint frames rather than
+trusted: `localPos0` gives hip offsets of `(+/-0.075, +/-0.0225, 0)`, shoulder
+`0.030988` and elbow `0.059900`, which match `XGOModel`'s defaults exactly.
+
+### Blocked: the asset's joint convention is not the one the IK assumes
+
+Driving the IK's stance angles into the XGO produces a collapsed, pitched robot:
+body at ~0.065 m against a commanded 0.13 m, and upright measure 0.52 (~58 deg of
+pitch). The joints track their targets to within 1.2 deg, so the actuators are
+fine -- the *angles themselves* do not mean what `LegIK` thinks they mean.
+
+Two concrete mismatches, both measured:
+
+1. **The zero pose is wrong.** At all-zero joint angles the legs lie flat in the
+   horizontal plane. For the front-left leg, in the body frame:
+
+   ```
+   hip (13_Link)  (+0.075, +0.022, -0.000)
+       12_Link    (+0.075, +0.053, -0.001)   <- out along +y by shoulder_length
+       11_Link    (+0.015, +0.053, -0.001)   <- back along -x by elbow_length
+   ```
+
+   `LegIK`'s zero is a leg hanging straight down.
+
+2. **The axes were baked.** Every revolute joint reports `axis = Z`; the URDF
+   importer folded the real axis into each joint's `localRot0`. Those local Z axes
+   map to world **Y** (shoulder), **-Y** (elbow) and **Z** (wrist) -- not the
+   X/Y/Y a conventional quadruped IK assumes.
+
+So this is not a unit or sign fix. Closing it means re-deriving the IK against the
+asset's own frame chain (`localRot0` / `localRot1` per joint), or re-importing the
+URDF with a converter that preserves conventional axes -- which would also restore
+the missing joint limits, and is probably the better fix if the URDF can be found.
+
+### Still outstanding for two agents
+
+- A second lidar and contact sensor for the XGO.
+- `DirectRLEnv` -> `DirectMARLEnv`, `possible_agents = ["rover", "xgo"]`, with
+  per-agent observation/action spaces, rewards and terminations.
+- Two-robot spawn logic so the pair does not spawn overlapping, and robot-robot
+  proximity/collision detection -- the actual point of the exercise, and still
+  impossible while only one robot moves.
+
 ---
 
 ## Verification
