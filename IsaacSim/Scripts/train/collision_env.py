@@ -201,8 +201,12 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
         render_interval=decimation,
     )
 
+    # Per-step cost is almost entirely fixed overhead: measured step time barely
+    # moves from 4 envs (552 ms) to 256 envs (575 ms), so throughput scales nearly
+    # linearly with env count. 4 envs yields ~15 agent-samples/s; 256 yields ~890.
+    # Override with train.py --num_envs.
     scene: CollisionEnvSceneCfg = CollisionEnvSceneCfg(
-        num_envs=4,
+        num_envs=256,
         env_spacing=12.0,
         replicate_physics=True,
         clone_in_fabric=True,

@@ -413,6 +413,53 @@ While replacing it: the old pattern was 16 channels x 16 headings with
 same 256-value budget now buys **256 distinct headings**.
 
 
+## 17. Throughput: the step cost is fixed, so run many more envs
+
+Simulating the quadruped dropped throughput from ~15 steps/s to ~1.8. Profiling
+showed the time is **not** in the observation pipeline:
+
+```
+full env.step            ~500 ms
+  raw sim.step             55.5 ms  x4 (decimation)  = 222 ms
+  scene.write_data_to_sim  38.4 ms  x4               = 154 ms
+  _update_sensor_state     17.3 ms  x2 (dones + obs) =  35 ms
+  one _cast_lidar           3.0 ms
+```
+
+A single physics substep costing 55 ms for four environments is pathological --
+standard IsaacLab does this in well under a millisecond -- and the same is true of
+`write_data_to_sim`. Both turn out to be almost entirely **fixed overhead**, which
+the scaling measurement makes obvious:
+
+| envs | startup | step time | agent-samples/s |
+| ---: | ---: | ---: | ---: |
+| 4 | 22 s | 552 ms | 14.5 |
+| 32 | 31 s | 557 ms | 115 |
+| 128 | 35 s | 607 ms | 422 |
+| 256 | 47 s | 575 ms | 891 |
+| 512 | 74 s | 724 ms | 1415 |
+
+Step time barely moves from 4 to 256 environments. Throughput therefore scales
+almost linearly with env count, and going from the original 4 to 512 is a **98x**
+improvement in samples per second for 31% more wall time per step.
+
+`scene.num_envs` now defaults to 256, and `train.py` takes `--num_envs`.
+
+This mitigates the problem rather than fixing it. The fixed cost is still there;
+it is just amortised over far more samples. Two candidates for attacking it
+directly, neither attempted here:
+
+- **The scene is spawned per environment, not cloned.** `_setup_scene` loops over
+  `num_envs` calling `usd_cfg.spawn.func(...)`, so each env gets its own full copy
+  of the 55k-triangle maze instead of an instanced one. The original code has
+  `self.scene.clone_environments(copy_from_source=False)` commented out. This is
+  the most likely source of both the fixed per-step cost and the startup time
+  (74 s at 512 envs). Switching to cloning would need care: the per-env XGO joint
+  limit repair and the prim paths both assume independent copies.
+- **Platform.** This machine is a GB10 (Grace Blackwell, ARM). Isaac Sim's
+  per-call CPU overhead may simply be higher here than on x86.
+
+
 ---
 
 ## Verification

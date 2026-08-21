@@ -6,6 +6,12 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser(description="Collision Avoidance Environment")
 parser.add_argument("--steps", type=int, default=100, help="Number of RL steps to run.")
 parser.add_argument(
+    "--num_envs",
+    type=int,
+    default=None,
+    help="Number of parallel environments (overrides the config default).",
+)
+parser.add_argument(
     "--video",
     action="store_true",
     help="Record videos of training. Requires --enable_cameras when running headless.",
@@ -32,6 +38,9 @@ gym.register(
 )
 
 env_cfg = CollisionEnvRB3Cfg()
+
+if args_cli.num_envs is not None:
+    env_cfg.scene.num_envs = args_cli.num_envs
 
 # adjust camera resolution and pose
 env_cfg.viewer.resolution = (640, 480)
@@ -101,6 +110,7 @@ if __name__ == "__main__":
     print()
     print("========== BENCHMARK ==========")
     print(f"Environments:       {base_env.num_envs}")
+    print(f"Agent samples/sec:  {len(base_env.possible_agents) * base_env.num_envs * steps / elapsed:.1f}")
     print(f"Steps:              {steps}")
     print(f"Steps executed      {steps_done}")
     print(f"Simulated time:     {simulated_seconds:.2f} s")
