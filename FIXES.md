@@ -778,6 +778,72 @@ velocity command + trot gait        : episode mean 24.0 steps, min  2, max 44
 Mean return over the same run improves -125.0 -> -50.3, with no NaN.
 
 
+## 23. The XGO learns to walk
+
+Section 22 left the hand-written trot stabilising the robot but barely moving it.
+Training locomotion with RL instead -- the standard IsaacLab approach -- works.
+
+### The task
+
+`xgo_locomotion_env.py` is a standalone velocity-tracking task: flat ground, one
+robot, a commanded forward and yaw velocity to track. Learning to walk inside the
+maze is the wrong shape of problem, since the XGO would face standing, walking and
+navigation against a single reward with a shared episode boundary interfering.
+
+Two choices did most of the work:
+
+- **Actions are offsets from the calibrated stance** (section 21), not absolute
+  joint targets. The robot begins every episode standing, so exploration perturbs
+  a working pose instead of searching 12-DoF space for one.
+- **Initial policy standard deviation is 0.20**, well below skrl's default.
+  Full-scale exploration on twelve joints throws the robot over before it can
+  experience a useful transition.
+
+Rewards are the usual set: exponential tracking of the commanded velocities, an
+alive bonus, and penalties for vertical bounce, roll/pitch rate, joint
+acceleration, action rate, and sitting on the end stops.
+
+### Training (PPO via skrl, 2048 envs, 2500 timesteps, 35 min)
+
+```
+Mean return      :  16.42 -> 818.33
+Episode length   :  17.12 -> 359.00 steps   (cap is 360: it stops falling)
+Value loss       :   2.34 -> 0.00
+Policy std       :   0.20 -> 0.12           (tightening, not collapsing)
+NaN              :  none
+```
+
+### Evaluation -- does it actually walk?
+
+Rising reward does not prove locomotion: a policy that stands still and banks the
+alive bonus also scores well. `eval_xgo.py` drives fixed commands and measures the
+body velocity that results.
+
+| commanded vx | achieved vx | commanded wz | achieved wz | upright | fell |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00 | -0.004 | 0.00 | -0.009 | 0.999 | 0/128 |
+| 0.15 | 0.105 | 0.00 | -0.009 | 0.999 | 0/128 |
+| 0.25 | 0.178 | 0.00 | -0.023 | 0.999 | 0/128 |
+| -0.15 | -0.061 | 0.00 | -0.010 | 0.999 | 0/128 |
+| 0.00 | 0.014 | 0.80 | 0.595 | 0.999 | 0/128 |
+| 0.15 | 0.102 | -0.80 | -0.772 | 0.999 | 0/128 |
+
+Every direction is correct in sign, the robot holds still when commanded to, and it
+never falls in any condition. Tracking runs at roughly 70% of command.
+
+**Against the scripted trot, which managed about 7% of commanded velocity, this is
+a decisive win**, and it took 35 minutes of training.
+
+### Remaining weaknesses
+
+- Backward is the weakest direction, ~41% of command against ~70% forward.
+- A consistent ~30% undershoot across the board. More training, a wider command
+  curriculum, or a foot-air-time reward would be the usual remedies.
+- No per-foot contact sensing, so the gait is not shaped by contact schedule at
+  all -- only the base has a contact sensor. Adding foot sensors is the single
+  most likely improvement.
+
+
 ---
 
 ## Verification
@@ -804,10 +870,9 @@ These are **not** fixed here.
 - **Throughput is low.** ~14–17 steps/s at 4 envs, roughly 0.5× real-time. Expected
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
-- **The XGO stands and is stable, but does not really walk** (section 22). The
-  trot gait loses ~85% of each stride to slip and yaw direction is unreliable.
-  It keeps the robot upright, which is what unblocks the rover's training, but
-  it is not usable locomotion yet.
+- **The scripted trot in the maze env is still weak** (section 22), but it has
+  been superseded: a trained RL policy walks properly (section 23). Folding that
+  policy back into the multi-agent maze environment is the obvious next step.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out
