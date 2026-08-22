@@ -21,6 +21,7 @@ from __future__ import annotations
 import omni.physics.tensors
 import omni.usd
 import math
+import os
 from pathlib import Path
 from collections.abc import Sequence
 import numpy as np
@@ -41,6 +42,8 @@ from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
 import xgo_kinematics
 import xgo_gait_controller
+import xgo_policy
+import xgo_locomotion_env
 import warp as wp
 from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, UsdShade, Gf
 from omni.physx.scripts import physicsUtils
@@ -97,6 +100,16 @@ XGO_AGENT = "xgo"
 # how to stand before it can learn to navigate.
 XGO_NUM_JOINTS = 12
 XGO_NUM_ACTIONS = 2
+# must match xgo_locomotion_env.ACTION_SCALE, or the policy's outputs are rescaled
+# into a different joint range than it learned on
+XGO_LOCO_ACTION_SCALE = xgo_locomotion_env.ACTION_SCALE
+
+# The locomotion policy's command input is in physical units (m/s, rad/s), not
+# normalised. Feeding it a raw [-1, 1] action asks for 1.0 m/s -- four times the
+# fastest command it ever trained on -- and it walks backwards. Scale to the
+# ranges it actually saw.
+XGO_CMD_VX_SCALE = xgo_locomotion_env.CMD_VX_RANGE[1]
+XGO_CMD_WZ_SCALE = xgo_locomotion_env.CMD_WZ_RANGE[1]
 # Actions in [-1, 1] map onto each joint's own travel, so -1/+1 are exactly the
 # authored limits. Built once in __init__ as centre +/- half-range.
 # Termination thresholds for "the quadruped fell over".
@@ -111,6 +124,17 @@ XGO_STAND_HEIGHT = 0.09
 # want far more grip than that, and without it a gait's stance legs slide instead
 # of pushing.
 XGO_FOOT_FRICTION = 1.2
+
+# Frozen low-level locomotion policy. The navigation policy issues a velocity
+# command; this turns it into joint targets. Trained on flat ground by
+# train_xgo.py, where it tracks ~70% of commanded velocity against the scripted
+# trot's ~7%.
+#
+# If the checkpoint is missing the environment falls back to the scripted trot,
+# so the repo still runs without a trained policy present.
+XGO_POLICY_CHECKPOINT = str(
+    Path(__file__).resolve().parent / "logs" / "skrl" / "xgo_locomotion" / "best_agent.pt"
+)
 
 # Success radius, and the minimum spawn-to-goal distance. Without the latter a
 # goal can be drawn inside the success radius, so the episode is already solved at
@@ -398,6 +422,24 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._xgo_joint_targets = self._xgo_stance_joints.clone()
         self.xgo_gait = xgo_gait_controller.XGOTrotGait(
             self.num_envs, self.device, stand_height=XGO_STAND_HEIGHT
+        )
+
+        # Hierarchical control: prefer the trained locomotion policy, fall back to
+        # the scripted trot if no checkpoint is present.
+        self.xgo_locomotion = None
+        if os.path.isfile(XGO_POLICY_CHECKPOINT):
+            self.xgo_locomotion = xgo_policy.XGOLocomotionPolicy(
+                XGO_POLICY_CHECKPOINT, self.device
+            )
+            print(
+                f"XGO low-level policy: {XGO_POLICY_CHECKPOINT} "
+                f"(obs {self.xgo_locomotion.obs_dim}, act {self.xgo_locomotion.action_dim})"
+            )
+        else:
+            print(f"XGO low-level policy: not found at {XGO_POLICY_CHECKPOINT}; using scripted trot")
+
+        self._xgo_prev_loco_actions = torch.zeros(
+            (self.num_envs, XGO_NUM_JOINTS), device=self.device
         )
 
         # spawn heights, taken from each robot's configured initial state
@@ -712,6 +754,42 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
     def _pre_physics_step(self, actions: dict[str, torch.Tensor]) -> None:
         self.actions = {k: v.clone() for k, v in actions.items()}
 
+        # The low-level policy was trained at the env-step rate with its action
+        # held across the decimated substeps, so evaluate it here rather than in
+        # _apply_action (which runs once per substep).
+        if self.xgo_locomotion is not None:
+            offsets = self.xgo_locomotion.act(self._xgo_locomotion_obs())
+            self._xgo_prev_loco_actions = offsets.clone()
+            targets = self._xgo_stance_joints + offsets.clamp(-1.0, 1.0) * XGO_LOCO_ACTION_SCALE
+            lower = self._xgo_action_centre - self._xgo_action_range
+            upper = self._xgo_action_centre + self._xgo_action_range
+            self._xgo_joint_targets = targets.clamp(lower, upper)
+
+    def _xgo_velocity_command(self) -> torch.Tensor:
+        """Navigation action in [-1, 1] -> the physical command units the policy expects."""
+        action = self.actions[XGO_AGENT].clamp(-1.0, 1.0)
+        return torch.stack(
+            (action[:, 0] * XGO_CMD_VX_SCALE, action[:, 1] * XGO_CMD_WZ_SCALE), dim=-1
+        )
+
+    def _xgo_locomotion_obs(self) -> torch.Tensor:
+        """Observation in the exact layout the locomotion policy was trained on."""
+        joint_pos = wp.to_torch(self.xgo_lite.data.joint_pos)[:, self._xgo_leg_ids]
+        joint_vel = wp.to_torch(self.xgo_lite.data.joint_vel)[:, self._xgo_leg_ids]
+
+        return torch.cat(
+            (
+                self._projected_gravity(self.xgo_lite),
+                wp.to_torch(self.xgo_lite.data.root_lin_vel_b),
+                wp.to_torch(self.xgo_lite.data.root_ang_vel_b),
+                joint_pos - self._xgo_stance_joints,
+                joint_vel,
+                self._xgo_prev_loco_actions,
+                self._xgo_velocity_command(),
+            ),
+            dim=-1,
+        )
+
 
     def _apply_action(self):
         # ---------------- rover: differential drive ----------------
@@ -740,32 +818,31 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             joint_ids=self._wheel_ids,
         )
 
-        # ---------------- XGO: velocity command -> gait -> IK ----------------
-        # _apply_action runs once per physics substep (decimation), so the gait
-        # clock advances at the physics rate, not the env-step rate.
-        body_height = (
-            wp.to_torch(self.xgo_lite.data.root_pos_w)[:, 2] - self.scene.env_origins[:, 2]
-        )
-        foot_targets = self.xgo_gait.step(
-            self.actions[XGO_AGENT], self.physics_dt, body_height=body_height
-        )
-
-        # Warm-started from the previous solution: the targets move only a little
-        # between control steps, so a couple of Gauss-Newton iterations suffice.
-        self._xgo_joint_targets = self.xgo_kin.inverse(
-            foot_targets,
-            self._xgo_joint_targets.reshape(self.num_envs, 4, 3),
-            iterations=3,
-            damping=1e-3,
-        ).reshape(self.num_envs, XGO_NUM_JOINTS)
-
-        # never command outside the authored travel
-        lower = self._xgo_action_centre - self._xgo_action_range
-        upper = self._xgo_action_centre + self._xgo_action_range
-        targets = self._xgo_joint_targets.clamp(lower, upper)
+        # ---------------- XGO ----------------
+        # With a trained low-level policy the joint targets were already computed
+        # in _pre_physics_step and are simply held across the substeps. The
+        # scripted trot is the fallback, and its clock advances per substep.
+        if self.xgo_locomotion is None:
+            body_height = (
+                wp.to_torch(self.xgo_lite.data.root_pos_w)[:, 2] - self.scene.env_origins[:, 2]
+            )
+            foot_targets = self.xgo_gait.step(
+                self.actions[XGO_AGENT], self.physics_dt, body_height=body_height
+            )
+            # Warm-started: targets move little between steps, so a couple of
+            # Gauss-Newton iterations suffice.
+            solved = self.xgo_kin.inverse(
+                foot_targets,
+                self._xgo_joint_targets.reshape(self.num_envs, 4, 3),
+                iterations=3,
+                damping=1e-3,
+            ).reshape(self.num_envs, XGO_NUM_JOINTS)
+            lower = self._xgo_action_centre - self._xgo_action_range
+            upper = self._xgo_action_centre + self._xgo_action_range
+            self._xgo_joint_targets = solved.clamp(lower, upper)
 
         self.xgo_lite.set_joint_position_target_index(
-            target=targets,
+            target=self._xgo_joint_targets,
             joint_ids=self._xgo_leg_ids,
         )
 
@@ -1050,6 +1127,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
 
         self._prev_xgo_actions[env_ids] = 0.0
         self._xgo_joint_targets[env_ids] = self._xgo_stance_joints[env_ids]
+        self._xgo_prev_loco_actions[env_ids] = 0.0
         self.xgo_gait.reset(env_ids)
 
         self.collisions_array[env_ids] = False

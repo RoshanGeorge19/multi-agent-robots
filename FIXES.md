@@ -844,6 +844,60 @@ a decisive win**, and it took 35 minutes of training.
   most likely improvement.
 
 
+## 24. Hierarchical control: the trained policy drives the XGO in the maze
+
+The maze environment now drives the XGO with the trained locomotion policy
+(section 23) instead of the scripted trot (section 22). The navigation policy
+issues a velocity command; the frozen low-level policy turns it into joint
+targets. The interfaces already matched -- the maze env commanded the XGO with a
+2-action velocity, which is exactly what the locomotion policy consumes.
+
+`xgo_policy.py` rebuilds the network from the skrl checkpoint with plain torch, so
+skrl is not needed in the inference path. If the checkpoint is absent the
+environment falls back to the scripted trot, so the repo still runs without one.
+
+The policy is evaluated once per environment step in `_pre_physics_step`, with its
+joint targets held across the decimated substeps -- matching how it was trained.
+Evaluating it in `_apply_action` would run it four times per step at a rate it
+never saw.
+
+### Two interface bugs, both silent-ish
+
+- **dtype.** skrl stores the observation preprocessor's statistics as float64.
+  Normalising a float32 observation with float64 statistics promotes the result,
+  and the matmul fails with "mat1 and mat2 must have the same dtype". Casting the
+  observation alone is not enough -- the stored statistics need casting too.
+- **Units.** The locomotion policy's command input is in **physical units** (m/s,
+  rad/s), not normalised. Feeding it the navigation policy's raw `[-1, 1]` action
+  asked for 1.0 m/s, four times the fastest command it ever trained on. The robot
+  walked *backwards*. Commands are now scaled to `CMD_VX_RANGE` / `CMD_WZ_RANGE`.
+
+  This one is worth dwelling on: the shapes matched, nothing raised, and the robot
+  stayed upright the whole time. Only measuring the achieved velocity caught it.
+
+### Measured in the maze
+
+| commanded | achieved | tracking |
+| --- | ---: | ---: |
+| vx 0.25 m/s | 0.100 m/s | 40% |
+| wz 1.00 rad/s | 0.953 rad/s | 95% |
+| wz -1.00 rad/s | -0.769 rad/s | 77% |
+| stand | 0.016 m/s | -- |
+
+Over 4 s of commanded forward walking the XGO covers 0.37 m against the scripted
+trot's 0.089 m, a **4.2x improvement**, with 0/32 falls and no wall collisions.
+
+Forward tracking is notably worse than the 70% measured standalone. The likely
+cause is ground material: the locomotion policy trained on IsaacLab's terrain
+plane, while the maze floor authors no physics material at all and so uses the
+PhysX default. Worth confirming before reading anything else into it.
+
+A caution on measurement: an integrated-yaw estimate initially suggested the turn
+direction was inverted. Measuring body angular velocity directly -- the same
+quantity the reward uses -- showed tracking at 95% with the correct sign. The
+integrated estimate was accumulating drift, not detecting a real fault.
+
+
 ---
 
 ## Verification
@@ -870,9 +924,9 @@ These are **not** fixed here.
 - **Throughput is low.** ~14–17 steps/s at 4 envs, roughly 0.5× real-time. Expected
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
-- **The scripted trot in the maze env is still weak** (section 22), but it has
-  been superseded: a trained RL policy walks properly (section 23). Folding that
-  policy back into the multi-agent maze environment is the obvious next step.
+- **Forward tracking in the maze is 40%, against 70% standalone** (section 24).
+  Most likely the maze floor's missing physics material. The scripted trot
+  remains only as a fallback for when no checkpoint is present.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out
