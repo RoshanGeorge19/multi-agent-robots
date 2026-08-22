@@ -100,9 +100,9 @@ XGO_NUM_JOINTS = 12
 # Termination thresholds for "the quadruped fell over".
 XGO_MIN_HEIGHT = 0.04
 XGO_MIN_UPRIGHT = 0.5
-# Drop height at spawn. At all-zero joint angles the body settles to ~0.069 m,
-# so this leaves a little clearance without a large fall.
-XGO_SPAWN_HEIGHT = 0.10
+# Body height above the feet at reset. The vendor driver puts the real range at
+# 75-115 mm (body_limit[2] in xgomini.yaml), so this sits mid-range.
+XGO_STAND_HEIGHT = 0.09
 
 # Success radius, and the minimum spawn-to-goal distance. Without the latter a
 # goal can be drawn inside the success radius, so the episode is already solved at
@@ -160,7 +160,7 @@ class CollisionEnvSceneCfg(InteractiveSceneCfg):
             # with xgo_kinematics (its FK matches the simulator to 1e-6 m), but
             # the foot offset inside the last link is not yet pinned down, so
             # there is no calibrated standing pose to seed. See FIXES.md 20.
-            pos=(0.0, 0.0, XGO_SPAWN_HEIGHT),
+            pos=(0.0, 0.0, XGO_STAND_HEIGHT + 0.01),
             rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
@@ -343,6 +343,18 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             (torch.cos(angles), torch.sin(angles), torch.zeros_like(angles)), dim=-1
         )
 
+        # Exact kinematics, read from the asset's own joint frames. Used to seed a
+        # standing pose: without it the XGO starts belly-down from the zero pose,
+        # falls within a couple of steps, and (because the episode boundary is
+        # shared) cuts the rover's episodes short too.
+        stage = omni.usd.get_context().get_stage()
+        self.xgo_kin = xgo_kinematics.XGOLegKinematics(
+            xgo_kinematics.read_joint_frames(
+                stage, f"/World/envs/env_0/scene/{XGO_JOINTS_SCOPE}"
+            ),
+            self.device,
+        )
+
         # Map actions in [-1, 1] onto each leg joint's own travel, so the policy
         # cannot command a target outside the authored limits.
         lo = torch.tensor(
@@ -354,9 +366,30 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._xgo_action_centre = (hi + lo) / 2.0
         self._xgo_action_range = (hi - lo) / 2.0
 
+        # Neutral standing pose, solved once. Verified to hold: commanding this
+        # through the action interface puts the body within ~3 mm of the requested
+        # height, level, with feet on the ground.
+        stance_targets = xgo_kinematics.stance_foot_targets(
+            self.device, height=XGO_STAND_HEIGHT
+        ).unsqueeze(0).expand(self.num_envs, 4, 3)
+        self._xgo_stance_joints = self.xgo_kin.inverse(
+            stance_targets,
+            torch.zeros((self.num_envs, 4, 3), device=self.device),
+            iterations=60,
+            damping=1e-4,
+        ).reshape(self.num_envs, XGO_NUM_JOINTS)
+
+        residual = torch.linalg.vector_norm(
+            self.xgo_kin.forward(self._xgo_stance_joints.reshape(self.num_envs, 4, 3))
+            - stance_targets,
+            dim=-1,
+        ).max()
+        print(f"XGO stance IK residual: {float(residual) * 1000:.4f} mm")
+
         # spawn heights, taken from each robot's configured initial state
         self._rover_spawn_z = self.cfg.scene.rover_rb3.init_state.pos[2]
-        self._xgo_spawn_z = self.cfg.scene.xgo_lite.init_state.pos[2]
+        # stand the body its own stance height above the feet, plus clearance
+        self._xgo_spawn_z = XGO_STAND_HEIGHT + 0.01
 
 
         self.collisions_array = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -938,6 +971,14 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
 
         self._place_robot(self.rover_rb3, env_ids, rover_spawn + origins, self._rover_spawn_z)
         self._place_robot(self.xgo_lite, env_ids, xgo_spawn + origins, self._xgo_spawn_z)
+
+        # start standing rather than belly-down from the asset's zero pose
+        self.xgo_lite.write_joint_position_to_sim_index(
+            position=self._xgo_stance_joints[env_ids],
+            joint_ids=self._xgo_leg_ids,
+            env_ids=env_ids,
+        )
+        self.xgo_lite.write_data_to_sim()
 
         self.goal_pos[env_ids] = rover_goal + origins
         self.xgo_goal_pos[env_ids] = xgo_goal + origins

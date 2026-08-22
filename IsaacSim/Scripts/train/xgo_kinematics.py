@@ -38,6 +38,25 @@ LEG_USD_INDEX = {"FL": 1, "FR": 2, "BL": 4, "BR": 3}
 # Within a leg the chain is base -> N3 -> N2 -> N1, so N3 is the hip.
 JOINT_ORDER = (3, 2, 1)
 
+# Foot contact point in the lower-link frame, measured from the collision meshes
+# (22,814 vertices per link, traversed with Usd.TraverseInstanceProxies -- a plain
+# PrimRange does not descend into instance proxies and finds nothing). The
+# extreme vertex is identical on all four legs at y = -0.085. XGOModel's
+# wrist_length of 0.0804 is close but not this asset's value.
+FOOT_OFFSET = (0.0, -0.085, 0.0)
+
+# Hip origins in the base frame, from the USD joint frames.
+HIP_OFFSETS = {
+    "FL": (0.075, 0.0225, 0.0),
+    "FR": (0.075, -0.0225, 0.0),
+    "BL": (-0.075, 0.0225, 0.0),
+    "BR": (-0.075, -0.0225, 0.0),
+}
+
+# Body height above the feet. The vendor driver puts the real range at 75-115 mm
+# (body_limit[2] in xgomini.yaml) and defaults foot height to 108 mm (xgo.h:53).
+STAND_HEIGHT = 0.09
+
 
 def xgo_joint_names() -> list[str]:
     """USD joint names in [FL, FR, BL, BR] x [hip, upper, lower] order."""
@@ -89,6 +108,7 @@ class XGOLegKinematics:
 
     def __init__(self, frames: dict[str, dict], device):
         self.device = device
+        self._foot_offset = torch.tensor(FOOT_OFFSET, device=device)
 
         # Stack the per-leg constants so forward() batches all four legs together
         # instead of looping over them in Python. Each entry is one step of the
@@ -113,11 +133,13 @@ class XGOLegKinematics:
                 }
             )
 
-    def forward(self, joint_angles: torch.Tensor) -> torch.Tensor:
-        """Foot-link origin for each leg, in the base frame.
+    def forward(self, joint_angles: torch.Tensor, offset: torch.Tensor | None = None) -> torch.Tensor:
+        """Foot positions for each leg, in the base frame.
 
         Args:
             joint_angles: Shape (N, 4, 3), ordered [FL, FR, BL, BR] x [hip, upper, lower].
+            offset: Point in the lower-link frame to report. Defaults to
+                :data:`FOOT_OFFSET`; pass zeros to get the link origin instead.
 
         Returns:
             Positions, shape (N, 4, 3).
@@ -136,7 +158,9 @@ class XGOLegKinematics:
             pos = pos + torch.einsum("nlij,lj->nli", rot, step["child_offset"])
             rot = rot @ step["rot1_inv"]
 
-        return pos
+        if offset is None:
+            offset = self._foot_offset
+        return pos + torch.einsum("nlij,j->nli", rot, offset)
 
     def inverse(
         self,
@@ -187,3 +211,22 @@ class XGOLegKinematics:
             angles = angles + step
 
         return angles
+
+
+def stance_foot_targets(device, height: float = STAND_HEIGHT, spread: float = 0.0) -> torch.Tensor:
+    """Neutral stance: each foot directly below its hip, `height` below the body.
+
+    Args:
+        device: Torch device.
+        height: Body height above the feet, in metres.
+        spread: Extra outward offset in y, positive pushes the feet wider.
+
+    Returns:
+        Foot targets in the base frame, shape (4, 3).
+    """
+    rows = []
+    for leg in LEG_NAMES:
+        hx, hy, _ = HIP_OFFSETS[leg]
+        side = 1.0 if hy > 0 else -1.0
+        rows.append([hx, hy + side * spread, -height])
+    return torch.tensor(rows, device=device)

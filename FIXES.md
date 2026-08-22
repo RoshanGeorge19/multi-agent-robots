@@ -648,6 +648,74 @@ was a trap. Its one still-valid export, the measured joint-name ordering, now li
 in `xgo_kinematics.py`.
 
 
+## 21. The XGO stands
+
+The foot offset is now measured, which was the last thing missing from section 20.
+
+### Measuring it
+
+`Usd.PrimRange(prim)` finds no mesh under the leg links -- the geometry sits behind
+**instance proxies**, which a plain traversal does not descend into. With
+`Usd.TraverseInstanceProxies()` the meshes appear (22,814 vertices per lower link),
+and the extreme vertex is identical on all four legs:
+
+```
+FOOT_OFFSET = (0.0, -0.085, 0.0)    # in the lower-link frame
+```
+
+This also explains the 0.126 m bounding box reported in section 20: `ComputeLocalBound`
+without proxies returns garbage for these prims. `XGOModel.wrist_length = 0.0804` is
+close but is not this asset's value.
+
+The offset is confirmed by physics, not just geometry: with the robot resting, FK
+places the feet at world z = 0.0013-0.0015 m, i.e. on the ground to within 1.5 mm.
+
+### Standing
+
+Commanding a stance through the action interface:
+
+| commanded height | body z | upright | joint tracking error |
+| ---: | ---: | ---: | ---: |
+| 0.075 m | 0.0780 | 1.000 | 0.79 deg |
+| 0.090 m | 0.0927 | 1.000 | 0.92 deg |
+| 0.105 m | 0.1071 | 1.000 | 1.02 deg |
+
+Body height tracks the command to ~3 mm and the robot is perfectly level. Compare
+section 14, where driving the shipped IK gave 0.065 m against a commanded 0.13 m,
+pitched 58 degrees.
+
+A caution worth recording: an earlier version of this test called
+`set_joint_position_target_index` directly and concluded the actuators were too
+soft, showing 20 degrees of tracking error and a body height that would not respond
+to the command at all. That was wrong. `_apply_action` overwrites the joint targets
+from the agent's action on every substep, so the robot was faithfully tracking the
+zero action -- whose hip target is 0 deg, the centre of `[-31, 31]`, exactly the
+value observed. The gains were never the problem. Anything driving this robot must
+go through the action interface, not around it.
+
+### Wired into the environment
+
+`_reset_idx` now writes the solved stance into the XGO's joints, so it starts
+standing rather than belly-down from the asset's zero pose. Holding that stance
+through the environment for 200 steps: body z steady at 0.0926, upright 1.000,
+**0/64 fallen**.
+
+Training effect (128 envs, 300 timesteps), against section 18's numbers:
+
+```
+Episode length (mean) : 1.7 -> 4.4 steps   (before)
+                        1.6 -> 7.3 steps   (with the stance seed)
+Value loss (rover)    : 0.808 -> 0.457
+Value loss (xgo)      : 4.176 -> 0.389
+Total reward (mean)   : -106.9 -> -54.3
+NaN                   : none
+```
+
+Episodes are longer but still short, which is expected: PPO starts with an action
+standard deviation of 1.0, so early exploration knocks the robot over regardless of
+where it starts. The stance removes the *guaranteed* fall, not the exploratory one.
+
+
 ---
 
 ## Verification
@@ -674,11 +742,12 @@ These are **not** fixed here.
 - **Throughput is low.** ~14–17 steps/s at 4 envs, roughly 0.5× real-time. Expected
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
-- **The XGO has not learned to stand, let alone walk.** Joint-level control is
-  wired and training is stable, but episodes end in ~4 steps because it falls.
-  Learning locomotion and navigation from one reward is optimistic; a
-  locomotion-first curriculum (flat ground, no goal term, reward for staying up)
-  is the likely next step.
+- **The XGO can stand but has not learned to walk.** It now starts and holds a
+  verified stance (section 21), but early PPO exploration still knocks it over, so
+  episodes run ~7 steps. The pieces for a gait are all present -- exact FK/IK and a
+  calibrated stance -- so driving it with `BezierGait` through the IK, and reducing
+  the XGO to a 2-action velocity command like the rover, is now a concrete option
+  and would remove the locomotion learning problem entirely.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out
