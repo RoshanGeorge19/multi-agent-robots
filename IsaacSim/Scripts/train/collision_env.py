@@ -125,6 +125,14 @@ XGO_STAND_HEIGHT = 0.09
 # of pushing.
 XGO_FOOT_FRICTION = 1.2
 
+# The maze itself has no floor: every _MAZE_ collider is a wall. The robots stand
+# on _LAB_/Plane, a 12 x 18 m plane inside the scene USD, which authors no physics
+# material and so falls back to the PhysX scene default. The locomotion policy was
+# trained on IsaacLab's terrain plane, which does author one, so the two surfaces
+# were not the same. This makes the maze floor explicit and matched.
+MAZE_FLOOR_PATH = "_LAB_/Plane"
+MAZE_FLOOR_FRICTION = float(os.environ.get("MAZE_FLOOR_FRICTION", "0.5"))
+
 # Frozen low-level locomotion policy. The navigation policy issues a velocity
 # command; this turns it into joint targets. Trained on flat ground by
 # train_xgo.py, where it tracks ~70% of commanded velocity against the scripted
@@ -236,11 +244,16 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
     }
 
     # rover: 256 lidar + lin vel + ang vel + goal (x, y, distance)
+    #        + the other robot (x, y, distance) in body frame
     # xgo:   the same, plus proprioception (projected gravity, body velocities,
     #        joint positions and velocities) which joint-level control needs
+    #
+    # The other robot has to be observed explicitly: the lidar is cast against the
+    # maze mesh only, so neither robot appears in the other's scan. Without this
+    # the agents are blind to each other and robot-robot avoidance is unlearnable.
     observation_spaces = {
-        ROVER_AGENT: 261,
-        XGO_AGENT: 256 + 3 + 3 + 3 + XGO_NUM_JOINTS * 2 + 3,
+        ROVER_AGENT: 261 + 3,
+        XGO_AGENT: 256 + 3 + 3 + 3 + XGO_NUM_JOINTS * 2 + 3 + 3,
     }
 
     # IPPO is an independent learner and never reads a joint state, so 0 ("build
@@ -284,7 +297,15 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
     rew_gets_closer_to_goal = 0.1
     rew_reach_goal = 10.0
     rew_step = -0.01
-    rew_robot_proximity_penalty = -2.0
+    # Proximity penalties are graded by distance, not switched by a threshold.
+    # A boolean "closer than WALL_MARGIN" gives the same penalty at 0.19 m as at
+    # 0.01 m and none at 0.21 m -- a cliff with no gradient for the policy to
+    # follow. These ramp linearly from zero at the trigger distance to full
+    # penalty at contact.
+    rew_wall_proximity_penalty = -1.0
+    rew_robot_proximity_penalty = -3.0
+    wall_proximity_distance = 0.35
+    robot_proximity_distance = 0.50
     rew_wall_collision = -100.0
 
     # XGO-only locomotion shaping. Joint-level control has to learn to stay up
@@ -369,6 +390,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         )
         print("XGO leg joints:", xgo_leg_names, "->", self._xgo_leg_ids)
 
+        # Translation from each env into env_0's frame, for lidar ray-casting.
+        self._env_offset_to_env0 = self.scene.env_origins - self.scene.env_origins[0]
+
         # Fixed body-frame ray fan: LIDAR_NUM_RAYS evenly spaced headings in the
         # horizontal plane, excluding the duplicate wrap point at +pi.
         angles = torch.linspace(-math.pi, math.pi, LIDAR_NUM_RAYS + 1, device=self.device)[:-1]
@@ -449,9 +473,11 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
 
 
         self.collisions_array = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.xgo_collisions = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.xgo_is_too_close = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        max_range = self.cfg.lidar_max_distance
+        self.nearest_wall = torch.full((self.num_envs,), max_range, device=self.device)
+        self.xgo_nearest_wall = torch.full((self.num_envs,), max_range, device=self.device)
+        self.robot_separation = torch.full((self.num_envs,), max_range, device=self.device)
         # per-ray lidar distances, populated by _update_sensor_state()
         self.lidar_distances: torch.Tensor | None = None
 
@@ -516,6 +542,26 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
                 bindingStrength=UsdShade.Tokens.weakerThanDescendants,
                 materialPurpose="physics",
             )
+
+    def _apply_floor_friction(self, stage, env_root: str) -> None:
+        """Author a physics material on the scene's floor plane."""
+        floor = stage.GetPrimAtPath(f"{env_root}/scene/{MAZE_FLOOR_PATH}")
+        if not floor.IsValid():
+            return
+
+        material_path = f"{env_root}/scene/floor_material"
+        material = UsdPhysics.MaterialAPI.Apply(
+            UsdShade.Material.Define(stage, material_path).GetPrim()
+        )
+        material.CreateStaticFrictionAttr().Set(MAZE_FLOOR_FRICTION)
+        material.CreateDynamicFrictionAttr().Set(MAZE_FLOOR_FRICTION)
+        material.CreateRestitutionAttr().Set(0.0)
+
+        UsdShade.MaterialBindingAPI.Apply(floor).Bind(
+            UsdShade.Material(stage.GetPrimAtPath(material_path)),
+            bindingStrength=UsdShade.Tokens.weakerThanDescendants,
+            materialPurpose="physics",
+        )
 
     @staticmethod
     def _xgo_limit_for(joint_name: str) -> tuple[float, float]:
@@ -685,6 +731,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         for env_id in range(self.cfg.scene.num_envs):
             self._fix_xgo_joint_limits(stage, f"/World/envs/env_{env_id}")
             self._apply_foot_friction(stage, f"/World/envs/env_{env_id}")
+            self._apply_floor_friction(stage, f"/World/envs/env_{env_id}")
 
         source_robot_path = f"{prim_path}/{ROVER_PATH}"
         robot_prim = stage.GetPrimAtPath(source_robot_path)
@@ -865,12 +912,15 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self.lidar_distances = self._cast_lidar(self.rover_rb3, LIDAR_HEIGHT_ROVER)
         self.xgo_lidar_distances = self._cast_lidar(self.xgo_lite, LIDAR_HEIGHT_XGO)
 
-        # NOTE: this measures proximity to *any* lidar return -- walls as well as
-        # the other robot. Separating the two needs per-hit ownership, which the
-        # ray caster does not report; until then wall proximity is penalised both
-        # here and through rew_wall_collision.
-        self.is_too_close = (self.lidar_distances < WALL_MARGIN).any(dim=1)
-        self.xgo_is_too_close = (self.xgo_lidar_distances < WALL_MARGIN).any(dim=1)
+        # Shortest wall distance, graded rather than thresholded. The lidar sees
+        # only the maze, so this is unambiguously wall proximity.
+        self.nearest_wall = self.lidar_distances.min(dim=1).values
+        self.xgo_nearest_wall = self.xgo_lidar_distances.min(dim=1).values
+
+        # Robot-robot separation, which no lidar reports.
+        rover_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
+        xgo_pos = wp.to_torch(self.xgo_lite.data.root_pos_w)[:, :2]
+        self.robot_separation = torch.linalg.vector_norm(rover_pos - xgo_pos, dim=-1)
 
     def _contact_hit(self, sensor) -> torch.Tensor:
         forces = wp.to_torch(sensor.data.net_forces_w)
@@ -884,6 +934,13 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         """
         pos = wp.to_torch(robot.data.root_pos_w)
         quat = wp.to_torch(robot.data.root_quat_w)
+
+        # The maze mesh is env_0's geometry in world coordinates, so rays have to
+        # be cast in env_0's frame. Every env holds an identical clone, and the
+        # offset is a pure translation, so distances carry over unchanged.
+        # Without this only env_0 ever registers a hit: every other robot sits
+        # env_spacing metres away and its rays miss the mesh completely.
+        pos = pos - self._env_offset_to_env0
 
         ray_starts = pos.clone()
         ray_starts[:, 2] += height
@@ -929,6 +986,23 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
 
         return goal_relative_b[:, :2], distance
 
+    @staticmethod
+    def _proximity(distance: torch.Tensor, trigger: float) -> torch.Tensor:
+        """0 at or beyond `trigger`, ramping linearly to 1 at zero distance."""
+        return (1.0 - distance / trigger).clamp(0.0, 1.0)
+
+    def _other_robot_in_body_frame(self, robot, other) -> tuple[torch.Tensor, torch.Tensor]:
+        """Where the other robot is, in this robot's own frame, plus the distance."""
+        pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
+        quat = wp.to_torch(robot.data.root_quat_w)
+        other_pos = wp.to_torch(other.data.root_pos_w)[:, :2]
+
+        relative_w = torch.zeros((self.num_envs, 3), device=self.device)
+        relative_w[:, :2] = other_pos - pos
+
+        relative_b = quat_apply_inverse(yaw_quat(quat), relative_w)
+        return relative_b[:, :2], torch.linalg.vector_norm(relative_b[:, :2], dim=-1)
+
     def _projected_gravity(self, robot) -> torch.Tensor:
         """Gravity direction in the body frame -- tells the policy which way is down."""
         quat = wp.to_torch(robot.data.root_quat_w)
@@ -945,6 +1019,10 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         rover_ang = wp.to_torch(self.rover_rb3.data.root_ang_vel_b)[:, 2]
         rover_goal_xy, rover_goal_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
 
+        rover_other_xy, rover_other_dist = self._other_robot_in_body_frame(
+            self.rover_rb3, self.xgo_lite
+        )
+
         rover_obs = torch.cat(
             (
                 self.lidar_distances.reshape(self.num_envs, -1),
@@ -952,6 +1030,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
                 rover_ang.unsqueeze(-1),
                 rover_goal_xy,
                 rover_goal_dist.unsqueeze(-1),
+                rover_other_xy,
+                rover_other_dist.unsqueeze(-1),
             ),
             dim=-1,
         )
@@ -961,6 +1041,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # posture and orientation to keep the body up, which a velocity-commanded
         # wheeled base never has to do.
         xgo_goal_xy, xgo_goal_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
+        xgo_other_xy, xgo_other_dist = self._other_robot_in_body_frame(
+            self.xgo_lite, self.rover_rb3
+        )
 
         xgo_obs = torch.cat(
             (
@@ -972,6 +1055,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
                 wp.to_torch(self.xgo_lite.data.joint_vel)[:, self._xgo_leg_ids],
                 xgo_goal_xy,
                 xgo_goal_dist.unsqueeze(-1),
+                xgo_other_xy,
+                xgo_other_dist.unsqueeze(-1),
             ),
             dim=-1,
         )
@@ -988,11 +1073,17 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # ---------------- rover ----------------
         _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
 
+        robot_proximity = self._proximity(
+            self.robot_separation, self.cfg.robot_proximity_distance
+        ) * self.cfg.rew_robot_proximity_penalty
+
         rover_reward = (
             (rover_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
             + self.cfg.rew_gets_closer_to_goal * (self.previous_distance - rover_dist)
             + self.collisions_array.float() * self.cfg.rew_wall_collision
-            + self.is_too_close.float() * self.cfg.rew_robot_proximity_penalty
+            + self._proximity(self.nearest_wall, self.cfg.wall_proximity_distance)
+            * self.cfg.rew_wall_proximity_penalty
+            + robot_proximity
             + step_rew
         )
         self.previous_distance = rover_dist
@@ -1014,7 +1105,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             (xgo_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
             + self.cfg.rew_gets_closer_to_goal * (self.xgo_previous_distance - xgo_dist)
             + self.xgo_collisions.float() * self.cfg.rew_wall_collision
-            + self.xgo_is_too_close.float() * self.cfg.rew_robot_proximity_penalty
+            + self._proximity(self.xgo_nearest_wall, self.cfg.wall_proximity_distance)
+            * self.cfg.rew_wall_proximity_penalty
+            + robot_proximity
             + alive
             + upright * self.cfg.rew_xgo_alive
             + self._xgo_has_fallen().float() * self.cfg.rew_xgo_fell
@@ -1131,9 +1224,10 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self.xgo_gait.reset(env_ids)
 
         self.collisions_array[env_ids] = False
-        self.is_too_close[env_ids] = False
         self.xgo_collisions[env_ids] = False
-        self.xgo_is_too_close[env_ids] = False
+        self.nearest_wall[env_ids] = self.cfg.lidar_max_distance
+        self.xgo_nearest_wall[env_ids] = self.cfg.lidar_max_distance
+        self.robot_separation[env_ids] = self.cfg.lidar_max_distance
 
 
     def _sample_spawn(self, n: int) -> torch.Tensor:

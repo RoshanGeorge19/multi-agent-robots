@@ -898,6 +898,85 @@ quantity the reward uses -- showed tracking at 95% with the correct sign. The
 integrated estimate was accumulating drift, not detecting a real fault.
 
 
+## 25. The lidar only worked in env 0
+
+Investigating the maze floor turned up a worse bug than the one being chased.
+
+`_cast_lidar` casts against `self._maze_mesh`, built from
+`/World/envs/env_0/scene/_MAZE_` in **world** coordinates. Every other environment
+sits `env_spacing` metres away, so its rays missed the mesh entirely. Measured at
+reset:
+
+```
+env0: rays_hitting=256/256  min=0.205
+env1: rays_hitting=  0/256  min=10.000
+env2: rays_hitting=  0/256  min=10.000
+```
+
+Every robot outside env 0 -- 255 of 256 at the default scale -- observed a constant
+10.0 m in all directions, the saturation value. This is the same failure as section
+16, introduced by that fix: the ray caster went from seeing nothing at all to
+seeing correctly in exactly one environment.
+
+It hides well in aggregate. Shapes are right, values are finite, and a
+drive-into-walls test still shows a small minimum range because the one working
+environment supplies it. What gave it away was the mean nearest-wall distance
+sitting at 9.694 m inside a maze two metres across.
+
+Rays are now translated into env_0's frame before casting. Every env holds an
+identical clone and the offset is a pure translation, so distances carry over
+unchanged. After the fix every environment reports 256/256 hits and the mean
+nearest-wall distance drops from **9.694 m to 0.266 m**.
+
+## 26. The robots could not see each other
+
+The lidar is cast against the maze mesh alone, so neither robot ever appeared in
+the other's scan. In a two-robot collision-avoidance task, both agents were blind
+to the thing they are supposed to avoid.
+
+Each agent now observes the other robot's position in its own body frame plus the
+separation distance. Verified against ground truth to 0.000000, with both agents
+agreeing. Observation spaces grow to 264 (rover) and 295 (xgo).
+
+## 27. Proximity is graded, not switched
+
+`is_too_close` was a boolean: `(lidar_distances < WALL_MARGIN).any()`. That gives
+the same penalty at 0.19 m as at 0.01 m and nothing at 0.21 m -- a cliff with no
+gradient for the policy to descend.
+
+Both proximity terms now ramp linearly from zero at a trigger distance to full
+penalty at contact, and wall and robot proximity are finally separate quantities
+with separate weights:
+
+```
+distance 0.60 m -> wall x0.00   robot x0.00
+distance 0.35 m -> wall x0.00   robot x0.30
+distance 0.20 m -> wall x0.43   robot x0.60
+distance 0.05 m -> wall x0.86   robot x0.90
+```
+
+This also ends the double-counting noted earlier, where wall proximity was charged
+under a weight named for robot proximity on top of `rew_wall_collision`.
+
+## 28. Floor physics: not the cause
+
+The maze has **no floor**. Every `_MAZE_` collider is a wall, 0.03 m thick spanning
+z = [0, 0.3]. The robots stand on `_LAB_/Plane`, a 12 x 18 m plane inside the scene
+USD which authors no physics material. `scene["terrain"]` is `None` despite
+`terrain` appearing in `scene.keys()` -- a dangling entry that spawns nothing.
+
+The floor material is now explicit and configurable, but it does **not** explain
+the walking gap. Sweeping it changed nothing:
+
+| floor friction | forward tracking |
+| ---: | ---: |
+| 0.5 | 0.108 m/s |
+| 1.0 | 0.102 m/s |
+
+The 40%-in-maze against 70%-standalone gap therefore has some other cause,
+recorded as open rather than left implied.
+
+
 ---
 
 ## Verification
@@ -925,8 +1004,7 @@ These are **not** fixed here.
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
 - **Forward tracking in the maze is 40%, against 70% standalone** (section 24).
-  Most likely the maze floor's missing physics material. The scripted trot
-  remains only as a fallback for when no checkpoint is present.
+  Floor friction has been ruled out (section 28); the cause is still unknown.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out
