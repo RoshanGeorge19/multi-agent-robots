@@ -716,6 +716,68 @@ standard deviation of 1.0, so early exploration knocks the robot over regardless
 where it starts. The stance removes the *guaranteed* fall, not the exploratory one.
 
 
+## 22. Velocity-commanded gait: what works, and what does not
+
+The XGO now takes the same 2-action command as the rover -- forward and yaw
+velocity -- with a trot gait turning that into foot targets and the IK
+(section 20) turning those into joint targets. Its action space drops from 12
+joint targets to 2.
+
+### Not a port of BezierGait
+
+`quadruped_gait_generator.BezierGait` is per-robot scalar numpy carrying a lot of
+mutable state (phase clock, touch-down times, stance/swing flags, previous foot
+positions), and its phase advances on **contact events**. Vectorising it faithfully
+needs per-foot contact sensors, which this scene does not have -- the contact
+sensor is on `base_link` only, so there is nothing to detect touch-down with.
+
+`xgo_gait_controller.py` is a fixed-phase trot instead: the clock advances on time,
+diagonal pairs move together, and every leg's target is closed-form in the phase
+variable. It vectorises with no per-env branching and needs no extra sensors. The
+interface is the one a gait generator would expose, so swapping in a faithful
+Bezier port later only changes that file.
+
+### It stabilises the robot but does not really walk
+
+| command | forward travel | expected | body z | fallen |
+| --- | ---: | ---: | ---: | ---: |
+| stand | 0.019 m | 0 | 0.091 | 0/32 |
+| forward +1 | 0.089 m | ~0.6 m | 0.091 | 0/32 |
+| back -1 | -0.033 m | ~-0.6 m | 0.095 | 0/32 |
+| yaw +1 | -- | -- | 0.092 | 0/32 |
+
+About 85% of each stride is lost to slip, and yaw direction is not reliable. Two
+things were tried and are recorded so they are not retried blindly:
+
+- **Body-height feedback** (planning the stance plane at the measured ground) is
+  **unstable**: pressing the feet down raises the body, which deepens the plan,
+  which raises it further. It ran away to 0.138 m when commanded to stand still.
+  The stance plane is fixed instead.
+- **Foot friction.** Nothing in this scene authors a physics material -- not the
+  robots, not the maze -- so every contact used the PhysX default. A high-friction
+  material is now bound to the lower legs (`XGO_FOOT_FRICTION`, bound on the link
+  because the colliders sit inside instance proxies where USD refuses edits). It
+  helped, roughly doubling forward travel, but did not close the gap: slip is not
+  the dominant cause.
+
+Tuning an open-loop position-controlled trot into real locomotion is a controls
+project -- stance timing, compliance, body stabilisation -- not a parameter tweak.
+
+### Why it is still worth keeping
+
+The XGO never falls (0/32 under every command tested), and that unblocks the
+*rover*. Because the episode boundary is shared, the quadruped collapsing used to
+cut the rover's episodes short too:
+
+```
+joint-level control, no stance seed : episode mean  4.4 steps, min  1
+joint-level control + stance seed   : episode mean  7.3 steps, min  1
+velocity command + trot gait        : episode mean 24.0 steps, min  2, max 44
+```
+
+Mean return over the same run improves -125.0 -> -50.3, with no NaN.
+
+
 ---
 
 ## Verification
@@ -742,12 +804,10 @@ These are **not** fixed here.
 - **Throughput is low.** ~14–17 steps/s at 4 envs, roughly 0.5× real-time. Expected
   for a 55k-triangle maze cloned four times with `replicate_physics=True`, but
   worth addressing before any long training run.
-- **The XGO can stand but has not learned to walk.** It now starts and holds a
-  verified stance (section 21), but early PPO exploration still knocks it over, so
-  episodes run ~7 steps. The pieces for a gait are all present -- exact FK/IK and a
-  calibrated stance -- so driving it with `BezierGait` through the IK, and reducing
-  the XGO to a 2-action velocity command like the rover, is now a concrete option
-  and would remove the locomotion learning problem entirely.
+- **The XGO stands and is stable, but does not really walk** (section 22). The
+  trot gait loses ~85% of each stride to slip and yaw direction is unreliable.
+  It keeps the robot upright, which is what unblocks the rover's training, but
+  it is not usable locomotion yet.
 - **This is still a single-robot environment.** The XGO quadruped is deactivated
   and only `rover_rb3` is registered, so the project goal of training *two* robots
   is not met. `rew_robot_proximity_penalty`, the commented-out

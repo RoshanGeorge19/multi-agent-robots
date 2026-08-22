@@ -40,8 +40,9 @@ from isaaclab.utils.math import sample_uniform, quat_apply, quat_apply_inverse, 
 from isaaclab.utils.mesh import create_trimesh_from_geom_mesh
 from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
 import xgo_kinematics
+import xgo_gait_controller
 import warp as wp
-from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, Gf
+from pxr import UsdGeom, Usd, PhysxSchema, UsdPhysics, UsdShade, Gf
 from omni.physx.scripts import physicsUtils
 
 
@@ -90,11 +91,12 @@ XGO_DEFAULT_LIMIT_DEG = (-90.0, 90.0)
 ROVER_AGENT = "rover"
 XGO_AGENT = "xgo"
 
-# The XGO is driven at the joint level rather than through the shipped gait stack.
-# That stack's IK cannot be used: the asset's joint convention is not the one it
-# assumes (see FIXES.md section 14). Learning joint targets directly sidesteps the
-# problem entirely, because the policy discovers whatever convention the asset has.
+# The XGO is commanded like the rover -- forward and yaw velocity -- with a trot
+# gait turning that into foot targets and the IK turning those into joint targets.
+# This replaces direct 12-DoF joint control: the policy no longer has to discover
+# how to stand before it can learn to navigate.
 XGO_NUM_JOINTS = 12
+XGO_NUM_ACTIONS = 2
 # Actions in [-1, 1] map onto each joint's own travel, so -1/+1 are exactly the
 # authored limits. Built once in __init__ as centre +/- half-range.
 # Termination thresholds for "the quadruped fell over".
@@ -103,6 +105,12 @@ XGO_MIN_UPRIGHT = 0.5
 # Body height above the feet at reset. The vendor driver puts the real range at
 # 75-115 mm (body_limit[2] in xgomini.yaml), so this sits mid-range.
 XGO_STAND_HEIGHT = 0.09
+
+# Nothing in this scene authors a physics material -- not the robots, not the maze
+# -- so every contact falls back to the PhysX default. Rubber feet on a hard floor
+# want far more grip than that, and without it a gait's stance legs slide instead
+# of pushing.
+XGO_FOOT_FRICTION = 1.2
 
 # Success radius, and the minimum spawn-to-goal distance. Without the latter a
 # goal can be drawn inside the success radius, so the episode is already solved at
@@ -195,11 +203,12 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
 
     possible_agents = [ROVER_AGENT, XGO_AGENT]
 
-    # The two robots have genuinely different action spaces: the rover takes a
-    # linear/angular velocity command, the XGO takes 12 joint position targets.
+    # Both robots now take a linear/angular velocity command. They remain separate
+    # agents with separate policies: the observation spaces differ, and the XGO's
+    # command drives a gait rather than wheels.
     action_spaces = {
         ROVER_AGENT: 2,
-        XGO_AGENT: XGO_NUM_JOINTS,
+        XGO_AGENT: XGO_NUM_ACTIONS,
     }
 
     # rover: 256 lidar + lin vel + ang vel + goal (x, y, distance)
@@ -317,7 +326,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self.previous_distance = torch.zeros(self.num_envs, device=self.device)
         self.xgo_goal_pos = torch.zeros((self.num_envs, 2), device=self.device)
         self.xgo_previous_distance = torch.zeros(self.num_envs, device=self.device)
-        self._prev_xgo_actions = torch.zeros((self.num_envs, XGO_NUM_JOINTS), device=self.device)
+        self._prev_xgo_actions = torch.zeros((self.num_envs, XGO_NUM_ACTIONS), device=self.device)
 
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
@@ -386,6 +395,11 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         ).max()
         print(f"XGO stance IK residual: {float(residual) * 1000:.4f} mm")
 
+        self._xgo_joint_targets = self._xgo_stance_joints.clone()
+        self.xgo_gait = xgo_gait_controller.XGOTrotGait(
+            self.num_envs, self.device, stand_height=XGO_STAND_HEIGHT
+        )
+
         # spawn heights, taken from each robot's configured initial state
         self._rover_spawn_z = self.cfg.scene.rover_rb3.init_state.pos[2]
         # stand the body its own stance height above the feet, plus clearance
@@ -433,6 +447,33 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             fixed += 1
 
         return fixed
+
+    def _apply_foot_friction(self, stage, env_root: str) -> None:
+        """Bind a high-friction physics material to the XGO's lower legs."""
+        material_path = f"{env_root}/scene/xgo_foot_material"
+        material = UsdPhysics.MaterialAPI.Apply(
+            UsdShade.Material.Define(stage, material_path).GetPrim()
+        )
+        material.CreateStaticFrictionAttr().Set(XGO_FOOT_FRICTION)
+        material.CreateDynamicFrictionAttr().Set(XGO_FOOT_FRICTION)
+        material.CreateRestitutionAttr().Set(0.0)
+
+        for leg in (1, 2, 3, 4):
+            link = stage.GetPrimAtPath(
+                f"{env_root}/scene/_ROBOTS_/xgo_lite/Geometry/world/base_link"
+                f"/tn__{leg}3_Link_/tn__{leg}2_Link_/tn__{leg}1_Link_"
+            )
+            if not link.IsValid():
+                continue
+            # Bind on the link itself, not its colliders: the collision geometry
+            # lives inside instance proxies, and USD refuses edits there. Material
+            # bindings inherit to descendants, so this reaches them anyway.
+            binding = UsdShade.MaterialBindingAPI.Apply(link)
+            binding.Bind(
+                UsdShade.Material(stage.GetPrimAtPath(material_path)),
+                bindingStrength=UsdShade.Tokens.weakerThanDescendants,
+                materialPurpose="physics",
+            )
 
     @staticmethod
     def _xgo_limit_for(joint_name: str) -> tuple[float, float]:
@@ -601,6 +642,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # agent, which first requires repairing the joint limits lost on import.
         for env_id in range(self.cfg.scene.num_envs):
             self._fix_xgo_joint_limits(stage, f"/World/envs/env_{env_id}")
+            self._apply_foot_friction(stage, f"/World/envs/env_{env_id}")
 
         source_robot_path = f"{prim_path}/{ROVER_PATH}"
         robot_prim = stage.GetPrimAtPath(source_robot_path)
@@ -698,16 +740,32 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             joint_ids=self._wheel_ids,
         )
 
-        # ---------------- XGO: direct joint position control ----------------
-        # Actions in [-1, 1] map onto the authored joint travel. No IK is involved,
-        # so the asset's joint convention does not need to be known.
-        xgo_targets = (
-            self._xgo_action_centre
-            + self.actions[XGO_AGENT].clamp(-1.0, 1.0) * self._xgo_action_range
+        # ---------------- XGO: velocity command -> gait -> IK ----------------
+        # _apply_action runs once per physics substep (decimation), so the gait
+        # clock advances at the physics rate, not the env-step rate.
+        body_height = (
+            wp.to_torch(self.xgo_lite.data.root_pos_w)[:, 2] - self.scene.env_origins[:, 2]
+        )
+        foot_targets = self.xgo_gait.step(
+            self.actions[XGO_AGENT], self.physics_dt, body_height=body_height
         )
 
+        # Warm-started from the previous solution: the targets move only a little
+        # between control steps, so a couple of Gauss-Newton iterations suffice.
+        self._xgo_joint_targets = self.xgo_kin.inverse(
+            foot_targets,
+            self._xgo_joint_targets.reshape(self.num_envs, 4, 3),
+            iterations=3,
+            damping=1e-3,
+        ).reshape(self.num_envs, XGO_NUM_JOINTS)
+
+        # never command outside the authored travel
+        lower = self._xgo_action_centre - self._xgo_action_range
+        upper = self._xgo_action_centre + self._xgo_action_range
+        targets = self._xgo_joint_targets.clamp(lower, upper)
+
         self.xgo_lite.set_joint_position_target_index(
-            target=xgo_targets,
+            target=targets,
             joint_ids=self._xgo_leg_ids,
         )
 
@@ -991,6 +1049,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         )
 
         self._prev_xgo_actions[env_ids] = 0.0
+        self._xgo_joint_targets[env_ids] = self._xgo_stance_joints[env_ids]
+        self.xgo_gait.reset(env_ids)
 
         self.collisions_array[env_ids] = False
         self.is_too_close[env_ids] = False
