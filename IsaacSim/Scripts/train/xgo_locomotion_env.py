@@ -129,7 +129,7 @@ class XGOLocomotionCfg(DirectRLEnvCfg):
     }
 
     # --- reward weights ---
-    rew_track_lin = 1.5        # match the commanded forward velocity
+    rew_track_lin = 2.5        # match the commanded forward velocity
     rew_track_ang = 0.75       # match the commanded yaw rate
     rew_alive = 0.5
     rew_fell = -10.0
@@ -142,8 +142,14 @@ class XGOLocomotionCfg(DirectRLEnvCfg):
     # Pay for keeping each foot airborne. This is what produces a stride rather
     # than a shuffle: without it the policy is free to satisfy the velocity
     # command with very short, very fast steps.
-    rew_feet_air_time = 1.0
-    feet_air_time_target = 0.3   # seconds aloft per step
+    rew_feet_air_time = 0.5
+    # Seconds aloft per step. 0.3 was taken from IsaacLab's ANYmal defaults and is
+    # badly wrong for this machine: ANYmal is ~50 kg on 0.55 m legs, this is
+    # 0.256 kg on 0.14 m legs. Step frequency scales as sqrt(g/L), so its natural
+    # cadence is ~2.5x ANYmal's -- about 0.12 s aloft. At 0.3 s every landing
+    # scored negative, penalising each step and pushing the policy to stop moving:
+    # velocity tracking fell from 70% to 29% of command.
+    feet_air_time_target = 0.12
     # only pay it when actually asked to move, or standing still gets rewarded
     # for marching on the spot
     air_time_command_threshold = 0.05
