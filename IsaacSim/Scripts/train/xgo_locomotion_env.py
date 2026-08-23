@@ -104,6 +104,30 @@ class XGOLocomotionCfg(DirectRLEnvCfg):
         track_pose=False,
     )
 
+    # Per-foot contact, which the base sensor cannot provide. Without it there is
+    # no way to reward stride length, and velocity tracking alone is solved by a
+    # high-frequency shuffle: tiny steps produce the commanded velocity with
+    # minimal risk of falling, so PPO finds that long before it finds a gait.
+    #
+    # One sensor per foot. A single sensor with a wildcard over the leg index
+    # resolves to just one body per environment, however the pattern is written.
+    foot_contacts: dict[int, ContactSensorCfg] = {
+        leg: ContactSensorCfg(
+            prim_path=f"/World/envs/env_.*/Robot/{ROBOT_ROOT}"
+            f"/tn__{leg}3_Link_/tn__{leg}2_Link_/tn__{leg}1_Link_",
+            update_period=0.0,
+            history_length=3,
+            track_air_time=True,
+            track_pose=False,
+            # The default 1.0 N is too high for this machine: it weighs well under
+            # a kilogram, and a loaded foot reports only ~0.7 N. At the default no
+            # foot ever counts as landed, so air time never resets and the reward
+            # is silently dead.
+            force_threshold=0.1,
+        )
+        for leg in (1, 2, 3, 4)
+    }
+
     # --- reward weights ---
     rew_track_lin = 1.5        # match the commanded forward velocity
     rew_track_ang = 0.75       # match the commanded yaw rate
@@ -114,6 +138,15 @@ class XGOLocomotionCfg(DirectRLEnvCfg):
     pen_joint_accel = -2.5e-7
     pen_action_rate = -0.01
     pen_joint_limit = -0.5     # discourage sitting on the end stops
+
+    # Pay for keeping each foot airborne. This is what produces a stride rather
+    # than a shuffle: without it the policy is free to satisfy the velocity
+    # command with very short, very fast steps.
+    rew_feet_air_time = 1.0
+    feet_air_time_target = 0.3   # seconds aloft per step
+    # only pay it when actually asked to move, or standing still gets rewarded
+    # for marching on the spot
+    air_time_command_threshold = 0.05
 
     tracking_sigma = 0.25
 
@@ -165,6 +198,12 @@ class XGOLocomotionEnv(DirectRLEnv):
         self.contact = ContactSensor(self.cfg.contact)
         self.scene.sensors["contact"] = self.contact
 
+        self.foot_contacts = {}
+        for leg, foot_cfg in self.cfg.foot_contacts.items():
+            sensor = ContactSensor(foot_cfg)
+            self.foot_contacts[leg] = sensor
+            self.scene.sensors[f"foot_contact_{leg}"] = sensor
+
         stage = omni.usd.get_context().get_stage()
         for env_id in range(self.cfg.scene.num_envs):
             root = f"/World/envs/env_{env_id}/Robot"
@@ -174,6 +213,7 @@ class XGOLocomotionEnv(DirectRLEnv):
             xgo_asset.apply_foot_friction(
                 stage, f"{root}/{ROBOT_ROOT}", f"{root}/foot_material"
             )
+            xgo_asset.apply_foot_contact_api(stage, f"{root}/{ROBOT_ROOT}")
 
     # ------------------------------------------------------------------
     # Physics
@@ -237,6 +277,30 @@ class XGOLocomotionEnv(DirectRLEnv):
         vertical = lin_vel[:, 2] ** 2 * self.cfg.pen_vertical_vel
         roll_pitch = torch.sum(ang_vel[:, :2] ** 2, dim=-1) * self.cfg.pen_roll_pitch
 
+        # feet air time: rewarded on the step a foot lands, by how long it flew
+        first_contact = torch.cat(
+            [
+                torch.as_tensor(s.compute_first_contact(self.step_dt), device=self.device)
+                for s in self.foot_contacts.values()
+            ],
+            dim=1,
+        )
+        last_air_time = torch.cat(
+            [
+                torch.as_tensor(s.data.last_air_time, device=self.device)
+                for s in self.foot_contacts.values()
+            ],
+            dim=1,
+        )
+        commanded = (
+            torch.linalg.vector_norm(self.commands, dim=-1) > self.cfg.air_time_command_threshold
+        ).float()
+        air_time = (
+            torch.sum((last_air_time - self.cfg.feet_air_time_target) * first_contact, dim=1)
+            * commanded
+            * self.cfg.rew_feet_air_time
+        )
+
         joint_accel = torch.sum(
             ((joint_vel - self.prev_joint_vel) / self.step_dt) ** 2, dim=-1
         ) * self.cfg.pen_joint_accel
@@ -255,7 +319,7 @@ class XGOLocomotionEnv(DirectRLEnv):
         limit_pen = torch.sum(overrun, dim=-1) * self.cfg.pen_joint_limit
 
         return (
-            track_lin + track_ang + alive + fall_pen
+            track_lin + track_ang + alive + fall_pen + air_time
             + vertical + roll_pitch + joint_accel + action_rate + limit_pen
         )
 

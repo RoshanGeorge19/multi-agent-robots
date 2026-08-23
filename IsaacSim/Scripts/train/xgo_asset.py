@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from pxr import Usd, UsdPhysics, UsdShade
+from pxr import PhysxSchema, Usd, UsdPhysics, UsdShade
 
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
@@ -142,6 +142,27 @@ def apply_foot_friction(stage, robot_root: str, material_path: str) -> None:
             bindingStrength=UsdShade.Tokens.weakerThanDescendants,
             materialPurpose="physics",
         )
+
+
+def apply_foot_contact_api(stage, robot_root: str) -> int:
+    """Enable contact reporting on the four foot links.
+
+    `activate_contact_sensors=True` on the spawn config only reaches the
+    articulation root: of this asset's 18 rigid bodies, only base_link comes back
+    with PhysxContactReportAPI applied. Any ContactSensor targeting the feet then
+    fails with "could not find any bodies with contact reporter API", which is why
+    per-foot contact -- and so any stride-length reward -- was unavailable.
+    """
+    applied = 0
+    for leg in (1, 2, 3, 4):
+        foot = stage.GetPrimAtPath(
+            f"{robot_root}/tn__{leg}3_Link_/tn__{leg}2_Link_/tn__{leg}1_Link_"
+        )
+        if not foot.IsValid():
+            continue
+        PhysxSchema.PhysxContactReportAPI.Apply(foot)
+        applied += 1
+    return applied
 
 
 def actuators() -> dict:

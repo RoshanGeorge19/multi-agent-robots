@@ -294,16 +294,24 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
         ),
     )
 
-    rew_gets_closer_to_goal = 0.1
-    rew_reach_goal = 10.0
-    rew_step = -0.01
+    # Balanced against an 18 s (540 step) episode. The previous weights made
+    # loitering strictly optimal: the graded wall-proximity penalty ran at up to
+    # -1.0 every step (~-130 per episode at the measured mean wall distance of
+    # 0.27 m) while reaching the goal paid +10 once and crossing the whole maze
+    # paid +0.1. The policy correctly learned to keep away from walls and ignore
+    # the goal -- 0 goal hits, 0 collisions, 0.17 m of a 0.98 m gap closed.
+    rew_gets_closer_to_goal = 5.0    # ~+5 for crossing the maze
+    rew_reach_goal = 50.0            # arriving clearly beats loitering
+    rew_step = -0.02                 # mild pressure to get on with it
     # Proximity penalties are graded by distance, not switched by a threshold.
     # A boolean "closer than WALL_MARGIN" gives the same penalty at 0.19 m as at
     # 0.01 m and none at 0.21 m -- a cliff with no gradient for the policy to
     # follow. These ramp linearly from zero at the trigger distance to full
     # penalty at contact.
-    rew_wall_proximity_penalty = -1.0
-    rew_robot_proximity_penalty = -3.0
+    # A nudge away from walls, not a wall of cost. Worst case now ~-27 over an
+    # episode against ~+55 for actually reaching the goal.
+    rew_wall_proximity_penalty = -0.05
+    rew_robot_proximity_penalty = -0.5
     wall_proximity_distance = 0.35
     robot_proximity_distance = 0.50
     rew_wall_collision = -100.0
@@ -372,6 +380,15 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self.xgo_goal_pos = torch.zeros((self.num_envs, 2), device=self.device)
         self.xgo_previous_distance = torch.zeros(self.num_envs, device=self.device)
         self._prev_xgo_actions = torch.zeros((self.num_envs, XGO_NUM_ACTIONS), device=self.device)
+
+        # Episode diagnostics, surfaced through `extras` so they reach tensorboard
+        # during training. Aggregate return and episode length cannot distinguish
+        # "reached the goal" from "loitered safely" -- both give long episodes and
+        # low per-step cost. These can.
+        self._episode_start_pos = torch.zeros((self.num_envs, 2), device=self.device)
+        self._xgo_episode_start_pos = torch.zeros((self.num_envs, 2), device=self.device)
+        self._goal_hits = torch.zeros(self.num_envs, device=self.device)
+        self._xgo_goal_hits = torch.zeros(self.num_envs, device=self.device)
 
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
@@ -1161,10 +1178,41 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # that repositions both robots together.
         shared_terminated = rover_terminated | xgo_terminated
 
+        self._goal_hits = torch.maximum(
+            self._goal_hits, (rover_dist < GOAL_REACHED_RADIUS).float()
+        )
+        self._xgo_goal_hits = torch.maximum(
+            self._xgo_goal_hits, (xgo_dist < GOAL_REACHED_RADIUS).float()
+        )
+        self._log_episode_diagnostics(shared_terminated | time_out)
+
         return (
             {ROVER_AGENT: shared_terminated, XGO_AGENT: shared_terminated},
             {ROVER_AGENT: time_out, XGO_AGENT: time_out},
         )
+
+    def _log_episode_diagnostics(self, done: torch.Tensor) -> None:
+        """Publish goal-hit rate and net displacement for finishing episodes.
+
+        Net displacement, not path length: a robot rocking on the spot racks up
+        path length while going nowhere, which is exactly the failure this exists
+        to expose.
+        """
+        if not bool(done.any()):
+            return
+
+        rover_pos = wp.to_torch(self.rover_rb3.data.root_pos_w)[:, :2]
+        xgo_pos = wp.to_torch(self.xgo_lite.data.root_pos_w)[:, :2]
+
+        rover_net = torch.linalg.vector_norm(rover_pos - self._episode_start_pos, dim=-1)
+        xgo_net = torch.linalg.vector_norm(xgo_pos - self._xgo_episode_start_pos, dim=-1)
+
+        self.extras["log"] = {
+            "diagnostics/rover_goal_rate": self._goal_hits[done].mean(),
+            "diagnostics/xgo_goal_rate": self._xgo_goal_hits[done].mean(),
+            "diagnostics/rover_net_displacement": rover_net[done].mean(),
+            "diagnostics/xgo_net_displacement": xgo_net[done].mean(),
+        }
 
     # -------------------------------------------------------------------------
     # Reset
@@ -1219,6 +1267,10 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         )
 
         self._prev_xgo_actions[env_ids] = 0.0
+        self._episode_start_pos[env_ids] = rover_spawn + origins
+        self._xgo_episode_start_pos[env_ids] = xgo_spawn + origins
+        self._goal_hits[env_ids] = 0.0
+        self._xgo_goal_hits[env_ids] = 0.0
         self._xgo_joint_targets[env_ids] = self._xgo_stance_joints[env_ids]
         self._xgo_prev_loco_actions[env_ids] = 0.0
         self.xgo_gait.reset(env_ids)
