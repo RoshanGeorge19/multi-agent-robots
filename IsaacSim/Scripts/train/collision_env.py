@@ -150,7 +150,11 @@ XGO_POLICY_CHECKPOINT = str(
 # instant terminations give PPO near-zero-length episodes and degenerate advantage
 # statistics.
 GOAL_REACHED_RADIUS = 0.15
-MIN_SPAWN_GOAL_DISTANCE = 0.75
+# Was 0.75, which put every goal far enough away that random exploration never
+# reached one -- the goal reward measured exactly 0.0 across a whole run, so it
+# shaped nothing. A lower floor mixes in goals that are occasionally reachable by
+# chance, which is what lets the bonus start doing work.
+MIN_SPAWN_GOAL_DISTANCE = 0.30
 
 # Lidar. IsaacLab 3.0's RayCaster supports only a single static mesh
 # ("Currently, only a single static mesh is supported" -- ray_caster_cfg.py), so
@@ -300,9 +304,17 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
     # 0.27 m) while reaching the goal paid +10 once and crossing the whole maze
     # paid +0.1. The policy correctly learned to keep away from walls and ignore
     # the goal -- 0 goal hits, 0 collisions, 0.17 m of a 0.98 m gap closed.
-    rew_gets_closer_to_goal = 5.0    # ~+5 for crossing the maze
-    rew_reach_goal = 50.0            # arriving clearly beats loitering
-    rew_step = -0.02                 # mild pressure to get on with it
+    # Set against *measured* term magnitudes, not predicted ones. At the previous
+    # weights a 540-step episode scored: collision -51.5, step -10.8, wall
+    # proximity -7.6, robot proximity -6.6, progress +0.8, goal +0.0. Roughly 98%
+    # penalty, and the goal bonus was never once received -- so it could not shape
+    # anything, and standing still was the correct answer.
+    #
+    # Progress is now the dense signal that carries the policy toward the goal,
+    # worth ~+20 for crossing the maze, with arrival worth +100 on top.
+    rew_gets_closer_to_goal = 20.0
+    rew_reach_goal = 100.0
+    rew_step = -0.02
     # Proximity penalties are graded by distance, not switched by a threshold.
     # A boolean "closer than WALL_MARGIN" gives the same penalty at 0.19 m as at
     # 0.01 m and none at 0.21 m -- a cliff with no gradient for the policy to
@@ -314,7 +326,10 @@ class CollisionEnvRB3Cfg(DirectMARLEnvCfg):
     rew_robot_proximity_penalty = -0.5
     wall_proximity_distance = 0.35
     robot_proximity_distance = 0.50
-    rew_wall_collision = -100.0
+    # Was -100, which at the measured ~0.5 collisions per episode cost -51.5 and
+    # dominated every other term combined. Still clearly punitive, no longer
+    # overwhelming: crossing to the goal now pays ~+120 against this -25.
+    rew_wall_collision = -25.0
 
     # XGO-only locomotion shaping. Joint-level control has to learn to stay up
     # before it can learn to navigate, so staying upright is rewarded directly
@@ -1094,15 +1109,23 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             self.robot_separation, self.cfg.robot_proximity_distance
         ) * self.cfg.rew_robot_proximity_penalty
 
-        rover_reward = (
-            (rover_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
-            + self.cfg.rew_gets_closer_to_goal * (self.previous_distance - rover_dist)
-            + self.collisions_array.float() * self.cfg.rew_wall_collision
-            + self._proximity(self.nearest_wall, self.cfg.wall_proximity_distance)
-            * self.cfg.rew_wall_proximity_penalty
-            + robot_proximity
-            + step_rew
-        )
+        # Kept as named terms so their magnitudes can be logged. Two reward
+        # weights in this project have already been set by analogy and found wrong
+        # only after a full training run; measuring beats guessing.
+        terms = {
+            "goal": (rover_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal,
+            "progress": self.cfg.rew_gets_closer_to_goal
+            * (self.previous_distance - rover_dist),
+            "collision": self.collisions_array.float() * self.cfg.rew_wall_collision,
+            "wall_proximity": self._proximity(
+                self.nearest_wall, self.cfg.wall_proximity_distance
+            )
+            * self.cfg.rew_wall_proximity_penalty,
+            "robot_proximity": robot_proximity,
+            "step": step_rew,
+        }
+        self._reward_terms = terms
+        rover_reward = sum(terms.values())
         self.previous_distance = rover_dist
 
         # ---------------- XGO ----------------
@@ -1208,6 +1231,10 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         xgo_net = torch.linalg.vector_norm(xgo_pos - self._xgo_episode_start_pos, dim=-1)
 
         self.extras["log"] = {
+            **{
+                f"reward_terms/{name}": value.mean()
+                for name, value in getattr(self, "_reward_terms", {}).items()
+            },
             "diagnostics/rover_goal_rate": self._goal_hits[done].mean(),
             "diagnostics/xgo_goal_rate": self._xgo_goal_hits[done].mean(),
             "diagnostics/rover_net_displacement": rover_net[done].mean(),
