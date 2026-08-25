@@ -83,10 +83,13 @@ def main() -> None:
             prev_pos[agent] = pos.clone()
             best_gap[agent] = torch.minimum(best_gap[agent], gap)
 
-        reached_r = base.previous_distance < CE.GOAL_REACHED_RADIUS
-        reached_x = base.xgo_previous_distance < CE.GOAL_REACHED_RADIUS
-        stats[CE.ROVER_AGENT]["goals"] += int(reached_r.sum())
-        stats[CE.XGO_AGENT]["goals"] += int(reached_x.sum())
+        # Read the environment's own pre-reset flags. Deriving this from
+        # previous_distance after step() returns cannot work: a successful episode
+        # has already reset by then, overwriting the distance with the next
+        # episode's starting value, so the counter reads zero however well the
+        # policy performs.
+        stats[CE.ROVER_AGENT]["goals"] += int(base._goal_hits.sum())
+        stats[CE.XGO_AGENT]["goals"] += int(base._xgo_goal_hits.sum())
         stats[CE.ROVER_AGENT]["collisions"] += int(base.collisions_array.sum())
         stats[CE.XGO_AGENT]["collisions"] += int(base.xgo_collisions.sum())
 

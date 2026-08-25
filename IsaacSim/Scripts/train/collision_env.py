@@ -1180,10 +1180,22 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._update_sensor_state()
 
         _, rover_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
-        rover_terminated = self.collisions_array | (rover_dist < GOAL_REACHED_RADIUS)
-
         _, xgo_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
-        xgo_terminated = self.xgo_collisions | (xgo_dist < GOAL_REACHED_RADIUS) | self._xgo_has_fallen()
+
+        # Reaching a goal does NOT end the episode -- the goal is respawned and the
+        # robot carries on. Terminating on success coupled the two agents through
+        # the shared episode boundary: every time the rover arrived it cut the
+        # XGO's episode short, so as the rover improved the XGO got less and less
+        # time. Measured over training, the rover's goal rate rose 0.07 -> 0.23
+        # while the XGO's peaked at 0.21 and fell back to 0.17, with its net
+        # displacement declining over the same span.
+        #
+        # Now an improving rover *lengthens* episodes rather than truncating them,
+        # and both robots get repeated attempts within one episode.
+        self._respawn_reached_goals(rover_dist, xgo_dist)
+
+        rover_terminated = self.collisions_array
+        xgo_terminated = self.xgo_collisions | self._xgo_has_fallen()
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
@@ -1201,18 +1213,42 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # that repositions both robots together.
         shared_terminated = rover_terminated | xgo_terminated
 
-        self._goal_hits = torch.maximum(
-            self._goal_hits, (rover_dist < GOAL_REACHED_RADIUS).float()
-        )
-        self._xgo_goal_hits = torch.maximum(
-            self._xgo_goal_hits, (xgo_dist < GOAL_REACHED_RADIUS).float()
-        )
+        # Count goals, not "reached at least one": goals respawn now, so an
+        # episode can contain several and a saturating flag would hide the
+        # difference between one and ten.
+        self._goal_hits += (rover_dist < GOAL_REACHED_RADIUS).float()
+        self._xgo_goal_hits += (xgo_dist < GOAL_REACHED_RADIUS).float()
         self._log_episode_diagnostics(shared_terminated | time_out)
 
         return (
             {ROVER_AGENT: shared_terminated, XGO_AGENT: shared_terminated},
             {ROVER_AGENT: time_out, XGO_AGENT: time_out},
         )
+
+    def _respawn_reached_goals(self, rover_dist: torch.Tensor, xgo_dist: torch.Tensor) -> None:
+        """Give a robot a fresh goal when it reaches its current one."""
+        origins = self.scene.env_origins[:, :2]
+
+        for reached, goal_pos, previous, robot in (
+            (rover_dist < GOAL_REACHED_RADIUS, self.goal_pos, self.previous_distance, self.rover_rb3),
+            (xgo_dist < GOAL_REACHED_RADIUS, self.xgo_goal_pos, self.xgo_previous_distance, self.xgo_lite),
+        ):
+            if not bool(reached.any()):
+                continue
+
+            env_ids = reached.nonzero(as_tuple=False).squeeze(-1)
+            pos = wp.to_torch(robot.data.root_pos_w)[env_ids, :2] - origins[env_ids]
+
+            fresh = self._resample_far_enough(
+                pos, self._sample_spawn(len(env_ids)), MIN_SPAWN_GOAL_DISTANCE
+            )
+            goal_pos[env_ids] = fresh + origins[env_ids]
+
+            # reseed the progress baseline, or the jump to a distant goal reads as
+            # a large negative step in the progress reward
+            previous[env_ids] = torch.linalg.vector_norm(
+                goal_pos[env_ids] - (pos + origins[env_ids]), dim=-1
+            )
 
     def _log_episode_diagnostics(self, done: torch.Tensor) -> None:
         """Publish goal-hit rate and net displacement for finishing episodes.
