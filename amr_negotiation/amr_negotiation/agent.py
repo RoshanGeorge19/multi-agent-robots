@@ -75,6 +75,7 @@ class Agent:
         self.fallback_reactive = policy["name"] == "reactive"
         self.blocked: dict | None = None
         self.no_neg_until: dict[str, float] = {}
+        self.reactive_until: float | None = None
         self.last_state_t = -1e9
         self.events: list[dict] = []
         self.decisions: list[dict] = []
@@ -273,7 +274,7 @@ class Agent:
 
     def tick_cruise(self, t, pose, perc):
         x = pose[0]
-        if self.dir * (x - self.goal_x) >= -self.p.goal_tol:
+        if self.goal_ref is None and self.dir * (x - self.goal_x) >= -self.p.goal_tol:
             self.mode, self.done_t = "DONE", t
             self.log(t, "goal_reached")
             return 0.0, 0.0
@@ -284,6 +285,8 @@ class Agent:
                 self.log(t, "peer_yielding", peer=yp[0], refuge=ref.id)
                 self.begin_proceed(t, ref, yp[0])
                 return self.brake()
+        if self.fallback_reactive and self.reactive_until is not None and t > self.reactive_until:
+            self.fallback_reactive, self.reactive_until = False, None
         if self.comms and not self.fallback_reactive:
             pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
             if pid is not None:
@@ -389,8 +392,9 @@ class Agent:
         elif td is None:
             self.log(t, "commit_timeout", peer=n["peer"])
         if ref is None:
+            # no usable refuge right now (e.g. all taken): act reactively, renegotiate once one may be free
             self.mode, self.fallback_reactive = "CRUISE", True
-            self.no_neg_until[n["peer"]] = t + 10.0
+            self.no_neg_until[n["peer"]] = self.reactive_until = t + 10.0
         elif yielder == self.id:
             self.begin_yield(t, ref, peer=n["peer"], rule=d.rule)
         else:
