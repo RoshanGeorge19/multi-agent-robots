@@ -45,17 +45,24 @@ for fname in ("runs.txt", "runs_r2.txt"):
         scn = scn[0] if scn else f"gz_s{k}"
         sub = "scen" if fname == "runs.txt" else "scen_r2"
         policy = {"name": pol, **({"rulebook": rb.replace("/amr_negotiation", R)} if rb != "-" else {})}
-        runs.append((int(k), label, scn, HERE / "gazebo" / sub / f"{scn}.yaml", policy))
+        runs.append((int(k), label, scn, HERE / "gazebo" / sub / f"{scn}.yaml", policy, kind(scn)))
 
 rows = []
-for k, label, scn, path, policy in runs:
+if (G / "runs.txt").exists():  # all-study batch (gazebo/run_case.sh): idx seed label scenario policy_file group
+    for line in (G / "runs.txt").read_text().split("\n"):
+        f = line.split()
+        if len(f) == 6:
+            _, k, label, scn, pf, grp = f
+            policy = json.loads((G / "scen" / "pol" / pf).read_text().replace("/amr_negotiation", R))
+            runs.append((int(k), label, scn, G / "scen" / f"{scn}.yaml", policy, grp))
+for k, label, scn, path, policy, grp in runs:
     f = sorted(glob.glob(str(G / "out" / label / f"{scn}_*.json")))
     if not f:
         continue
     g = json.loads(Path(f[0]).read_text())
     d = sim2d.run_episode(load_scenario(path), policy, seed=k)
     rows.append({
-        "code": CODE, "kind": kind(scn), "scenario": scn, "policy": label, "seed": k,
+        "code": CODE, "kind": grp, "scenario": scn, "policy": label, "seed": k,
         "gz_success": g["success"], "gz_deadlock": g["deadlock"], "gz_collision": g["collision"],
         "d2_success": d["success"], "d2_deadlock": d["deadlock"], "d2_collision": d["collision"],
         "gz_yielder": g.get("yielder"), "d2_yielder": d.get("yielder"),
