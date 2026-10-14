@@ -42,10 +42,10 @@ That is about 14 000 episodes, taking ~10 min on 8 cores.
    - Both robots yielded in about 15 % of S8b episodes, and about 2.5 % deadlocked.
    - At 97–99 % loss, the robots fall back to reactive behaviour in 73–91 % of episodes. That fallback is slow but safe.
    - Hardening the protocol against lost messages (an acknowledged commit before moving, or a lease/expiry on decisions) is the next protocol fix.
-3. **Payments make honest bidding pay.**
-   - **Without transfers**, B gains 1.0 ± 0.2 s by reporting 2× its cost, and total delay rises by 4.9 s.
-   - **With VCG payments**, where the robot that proceeds pays the yielder's reported bid, the same inflation *costs* B 9.7 ± 2.0 s. Truthful reporting is best for B.
-   - **Price:** the payments are not budget-balanced. About 21–25 s of "delay credit" per encounter goes to the bank. In a fleet this would be a virtual currency rather than real cost.
+3. **Clarke-pivot payments make honest reporting a dominant strategy (in the cost model).** Superseded by `REPORT_payments.md`.
+   - The first version of this study charged the proceeder the yielder's reported bid. That rule is **not** Clarke pivot, and it rewards misreports: A gains +7.5 s by under-reporting ×0.25 and B gains +0.7 s at ×0.75.
+   - `policies.decide_clarke` now implements the real Clarke pivot. No unilateral misreport in ×0.25–×4 is profitable in any tested encounter under the predicted costs.
+   - **Price:** payments go to a bank (about 9–11 s per encounter), and both robots shading their reports together is profitable.
    - An inflation of 1.5× changed no decisions.
 4. **Repeated encounters: a small fairness credit buys near-perfect fairness cheaply.**
 

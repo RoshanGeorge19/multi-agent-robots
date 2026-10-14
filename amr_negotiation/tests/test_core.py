@@ -283,3 +283,32 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
                 spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
             r = run_episode(sc, spec, seed=0)
             assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
+
+
+def test_clarke_pivot_is_second_price_and_truthful():
+    import itertools
+    import random
+
+    from amr_negotiation.mechanism import clarke
+
+    # A yields: costs 10 + 1 = 11. B yields: 2 + 4 = 6, so B yields; A pays 4 - min(1, 4) = 3.
+    y, pay = clarke({"A": {"A": 10.0, "B": 1.0}, "B": {"A": 2.0, "B": 4.0}})
+    assert y == "B" and pay == {"A": pytest.approx(3.0), "B": pytest.approx(0.0)}
+    rng = random.Random(0)
+    for _ in range(300):
+        true = {o: {i: rng.uniform(0, 30) for i in "AB"} for o in "AB"}
+        y, pay = clarke(true)
+        for i, k in itertools.product("AB", (0.1, 0.5, 0.9, 1.1, 2.0, 10.0)):
+            rep = {o: {j: c * (k if j == i else 1.0) for j, c in v.items()} for o, v in true.items()}
+            y2, pay2 = clarke(rep)
+            assert true[y2][i] + pay2[i] >= true[y][i] + pay[i] - 1e-9
+        assert min(pay.values()) >= 0.0
+
+
+def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml")
+    for seed in range(3):
+        rc = run_episode(sc, {"name": "clarke"}, seed=seed)
+        rb = run_episode(sc, {"name": "cost_bid"}, seed=seed)
+        assert rc["success"] and rc.get("yielder") == rb.get("yielder")
+        assert all(v >= 0 for v in rc["decisions"][0]["payments"].values())
