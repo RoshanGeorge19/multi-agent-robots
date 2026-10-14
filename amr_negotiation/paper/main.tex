@@ -106,15 +106,17 @@ Table~\ref{tab:gz} summarizes 158 Gazebo runs with one run per scenario, policy,
 \begin{table}[t]\centering
 \caption{Gazebo runs (fixed priority, rulebook, \cb; plus reactive and a proximity-first rulebook in the single-bay sweep).}
 \label{tab:gz}
+{\footnotesize\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrrrr@{}}\toprule
-Scenario & Runs & Success & Collision & Same yielder as 2D\\\midrule
+Scenario & Runs & Success & Coll. & Same yielder\\\midrule
 Single bay, negotiating & 40 & 40 & 0 & 40\\
 Single bay, reactive & 10 & 8 & 1 & 5\\
 Convoy (2 v 1) & 18 & 18 & 0 & 18\\
-Single bay, 50\% loss, 0.5\,s & 18 & 18 & 0 & 18\\
+Single bay, 50\% loss & 18 & 18 & 0 & 18\\
 T-junction, before fixes & 36 & 10 & 3 & 30\\
 T-junction, after fixes & 36 & 36 & 0 & 36\\\bottomrule
-\end{tabular}
+\end{tabular}}\\[2pt]
+{\footnotesize Coll.: collisions. Same yielder: same (first) yielder as the 2D simulator. The 50\% loss runs also have 0.5\,s latency.}
 \end{table}
 
 \section{Discussion and Limitations}
