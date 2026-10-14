@@ -87,7 +87,7 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
             s = st[i]
             pts, peers = [], []
             for j in ids:
-                if j == i:
+                if j == i or (sc.despawn_done and agents[j].mode == "DONE"):
                     continue
                 o = st[j]
                 if math.hypot(o[0] - s[0], o[1] - s[1]) <= rs.lidar_range:
@@ -114,6 +114,8 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
                 wall_hits += 1
         for a_i in range(len(ids)):
             for b_i in range(a_i + 1, len(ids)):
+                if sc.despawn_done and "DONE" in (agents[ids[a_i]].mode, agents[ids[b_i]].mode):
+                    continue
                 p, q = st[ids[a_i]], st[ids[b_i]]
                 d = math.hypot(p[0] - q[0], p[1] - q[1])
                 min_dist = min(min_dist, d)
