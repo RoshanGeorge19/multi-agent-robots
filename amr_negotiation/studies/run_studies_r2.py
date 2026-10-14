@@ -7,8 +7,8 @@ S7  noisy self-estimates in cost_bid: each robot's bid is multiplied by exp(sigm
     The noise is drawn from (episode seed, robot id, conflict time), so both robots see the
     same noisy bid, i.e. each robot reports its own noisy estimate truthfully.
 S8  comms stress: shorter conflict-detection range and faster robots x loss x latency.
-S9  payments: B inflates its bid by k. Utilities with no transfers vs. Clarke-pivot (VCG)
-    payments, where the proceeding robot pays the yielder's reported bid to the bank.
+S9  payments: Clarke-pivot (VCG) mechanism, `policies.decide_clarke`. Robot A, robot B, or both
+    (collusion) report k x their true predicted costs, k in K9; B's urgency 1 or 3.
 S10 repeated encounters: 20 encounters per sequence between A and B, with random bay position
     and arrival offset. The cost of each robot yielding is measured once per encounter with
     forced-yielder runs; the selection rules (fixed priority, cost, alternation, credit-weighted
@@ -59,19 +59,24 @@ def job(args):
     return row
 
 
+K9 = (0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0, 4.0)
+
+
 def job9(args):
-    k, x, sd, seed = args
-    sc = RS.SW.apply_overrides(RS.SW.load_scenario(S), RS.SW._overrides({'bays.0.x': x, 'agents.1.start_delay': sd}))
-    rows = []
-    for kk in (1.0, k):
-        RS.SCALE.clear(); RS.SCALE['B'] = kk
-        r = sim2d.run_episode(sc, {'name': 'cost_bid'}, seed=seed)
-        bids = (r['decisions'][0].get('bids') if r['decisions'] else None) or {}
-        rows.append({'k': kk, 'report_k': k, 'x': x, 'seed': seed, 'success': r['success'], 'yielder': r.get('yielder'),
-                         'bid_A': bids.get('A'), 'bid_B': bids.get('B'), 'true_bid_B': (bids.get('B') or 0) / kk,
-                         'delay_A': r['agents']['A'].get('delay'), 'delay_B': r['agents']['B'].get('delay'), 'total_delay': r.get('total_delay')})
-    RS.SCALE.clear()
-    return rows[1] if k != 1.0 else rows[0]
+    """One Clarke-pivot episode where robot(s) `who` report k x their true predicted costs."""
+    who, k, u_b, x, sd, seed = args
+    sc = RS.SW.apply_overrides(RS.SW.load_scenario(S), RS.SW._overrides(
+        {'bays.0.x': x, 'agents.1.start_delay': sd, 'agents.1.urgency': u_b}))
+    r = sim2d.run_episode(sc, {'name': 'clarke', 'report_scale': dict.fromkeys(who, k)}, seed=seed)
+    d = next((d for d in r['decisions'] if 'payments' in d), {})
+    row = {'who': who, 'k': k, 'u_B': u_b, 'x': x, 'sd': sd, 'seed': seed, 'success': r['success'],
+           'collision': r.get('collision'), 'yielder': d.get('yielder'), 'total_delay': r.get('total_delay'),
+           'delay_A': r['agents']['A'].get('delay'), 'delay_B': r['agents']['B'].get('delay')}
+    for key in ('types', 'reports'):
+        for o, v in (d.get(key) or {}).items():
+            row.update({f'{key[0]}_{o}y_{i}': c for i, c in v.items()})
+    row.update({f'pay_{i}': p for i, p in (d.get('payments') or {}).items()})
+    return row
 
 
 def job10(seq):
@@ -126,6 +131,16 @@ STUDIES = {
                          'grid': {'agent_params.detect_range': [6.0, 3.0, 1.5], 'robot.v_max': [0.26, 0.5],
                                'comms.loss': [0.0, 0.5, 0.9], 'comms.latency': [0.05, 0.5, 2.0]},
                          'random': {'agents.1.start_delay': [0.0, 8.0]}},
+ 'S8c_protocol_ablation': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,
+                              'policies': [
+        {'name': n, 'label': f'{n}|commit={int(c)},state={int(g)},bay={int(b)}',
+         'agent_params': {'commit': c, 'state_guard': g, 'bay_check': b}}
+        for n in ('fixed_priority', 'cost_bid')
+        for c in (True, False) for g in (True, False) for b in (True, False)
+    ],
+    'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],
+                                    'comms.loss': [0.9, 0.97, 0.99], 'comms.latency': [2.0, 4.0, 8.0]},
+                              'random': {'agents.1.start_delay': [0.0, 8.0]}},
  'S8b_comms_extreme': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,
                            'policies': [{'name': 'fixed_priority'}, DEF, PROX, {'name': 'cost_bid'}],
                            'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],
@@ -146,7 +161,8 @@ if __name__ == '__main__':
                 jobs = []
                 for seed in range(3 if smoke else 60):
                     sd = round(float(np.random.default_rng(10_000 + seed).uniform(0, 8)), 3)
-                    jobs += [(k, x, sd, seed) for k in (1.0, 1.5, 2.0, 4.0) for x in (2.0, 4.0, 6.0)]
+                    jobs += [(who, k, u, x, sd, seed) for who in ('A', 'B', 'AB') for k in K9 for u in (1.0, 3.0)
+                             for x in (2.0, 4.0, 6.0) if not (k == 1.0 and who != 'A')]
                 rows = pool.map(job9, jobs, chunksize=4)
             elif n == 'S10_repeated':
                 seqs = pool.map(job10, range(2 if smoke else 50))

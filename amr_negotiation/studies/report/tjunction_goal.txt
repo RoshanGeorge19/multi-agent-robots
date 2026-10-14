@@ -1,12 +1,12 @@
 | policy | loss | n | success | deadlock | collision | mean total delay (s, successes) |
 |---|---|---|---|---|---|---|
-| reactive | 0% | 48 | 27 | 21 | 0 | 189.1 |
-| reactive | 50% | 48 | 27 | 21 | 0 | 189.1 |
-| fixed_priority | 0% | 48 | 48 | 0 | 0 | 60.4 |
+| reactive | 0% | 48 | 28 | 20 | 0 | 210.8 |
+| reactive | 50% | 48 | 28 | 20 | 0 | 210.8 |
+| fixed_priority | 0% | 48 | 48 | 0 | 0 | 60.5 |
 | fixed_priority | 50% | 48 | 48 | 0 | 0 | 65.5 |
 | rules_default | 0% | 48 | 48 | 0 | 0 | 53.1 |
-| rules_default | 50% | 48 | 48 | 0 | 0 | 55.4 |
-| cost_bid | 0% | 48 | 48 | 0 | 0 | 48.8 |
+| rules_default | 50% | 48 | 48 | 0 | 0 | 55.5 |
+| cost_bid | 0% | 48 | 48 | 0 | 0 | 48.9 |
 | cost_bid | 50% | 48 | 48 | 0 | 0 | 49.7 |
 
 non-reactive failures (pol, sdA, sdB, sdS, S goal_x, loss, seed): []
