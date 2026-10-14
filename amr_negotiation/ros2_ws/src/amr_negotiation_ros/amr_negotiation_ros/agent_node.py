@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import rclpy
@@ -67,6 +68,7 @@ class AgentNode(Node):
         self.declare_parameter("scenario", "")
         self.declare_parameter("policy", "rule_based")
         self.declare_parameter("rulebook", "")
+        self.declare_parameter("policy_file", "")  # JSON with extra policy keys (report_scale, bid_sigma, table, ...)
         self.declare_parameter("seed", 0)
         self.declare_parameter("rate", 20.0)
         self.declare_parameter("map_filter", 0.08)
@@ -77,6 +79,8 @@ class AgentNode(Node):
         policy = {"name": g("policy")}
         if g("rulebook"):
             policy["rulebook"] = g("rulebook")
+        if g("policy_file"):
+            policy.update(json.loads(Path(g("policy_file")).read_text()))
         seed = int(g("seed")) * 1000 + sum(map(ord, self.rid))
         self.rng = np.random.default_rng(seed)
         self.agent = Agent(cfg, self.sc, policy, rng=np.random.default_rng(seed + 1))

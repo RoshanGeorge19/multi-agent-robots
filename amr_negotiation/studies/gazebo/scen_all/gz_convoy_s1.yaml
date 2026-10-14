@@ -1,0 +1,31 @@
+agents:
+- goal_x: 12.8
+  id: A
+  start_x: -1.0
+- goal_x: 11.8
+  id: C
+  start_delay: 4.563
+  start_x: -2.2
+- goal_x: -2.0
+  id: B
+  start_delay: 2.094
+  start_x: 11.0
+bays:
+- depth: 0.6
+  side: 1
+  width: 0.8
+  x: 3.0
+- depth: 0.6
+  side: -1
+  width: 0.8
+  x: 7.0
+comms:
+  jitter: 0.02
+  latency: 0.05
+  loss: 0.0
+  rate: 5.0
+despawn_done: true
+length: 10.0
+name: gz_convoy_s1
+room_length: 3.5
+width: 0.65

@@ -1,0 +1,32 @@
+agents:
+- goal_x: 10.0
+  id: A
+  start_delay: 0.0
+  start_x: -1.0
+- goal_x: -2.0
+  id: B
+  start_delay: 5.718
+  start_x: 9.0
+  urgency: 3.0
+bays:
+- depth: 0.6
+  side: 1
+  width: 0.8
+  x: 2.0
+comms:
+  jitter: 0.02
+  latency: 0.05
+  loss: 0.0
+  rate: 5.0
+length: 8.0
+name: gz_urg_s1
+robot:
+  a_max: 0.5
+  radius: 0.25
+  v_max: 0.26
+  v_rev_max: 0.15
+  w_max: 1.82
+room_length: 2.5
+room_refuges: true
+room_width: 2.5
+width: 0.65
