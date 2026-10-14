@@ -213,3 +213,18 @@ def test_lossy_extreme_comms_no_shared_bay():
         sc, {"name": "fixed_priority", "agent_params": {"detect_range": 6.0}}, seed=15
     )
     assert r["success"] and not r["collision"]
+
+
+def test_asymmetric_map_share():
+    """A knows no bays, B knows both: with share_map A learns them from B's BID and the robots agree."""
+    from amr_negotiation import sim2d, sweep
+
+    sc = sweep.load_scenario(str(Path(__file__).resolve().parents[1] / "scenarios/corridor_two_bays.yaml"))
+    sc.agents[0].known_refuges = []
+    own = sim2d.run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
+    shared = sim2d.run_episode(
+        sc, {"name": "fixed_priority", "agent_params": {"share_map": True}}, seed=0, record=True
+    )
+    assert own["success"] and shared["success"] and not shared["collision"]
+    assert not any(e["event"] == "decision_mismatch" for e in shared["events"])
+    assert shared["total_delay"] < own["total_delay"]
