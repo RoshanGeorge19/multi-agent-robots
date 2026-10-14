@@ -155,3 +155,14 @@ def test_footprint_overlap():
     assert footprints_overlap((0, 0, 0), (0.1, 0, 3.1416), fp)
     assert not footprints_overlap((0, 0, 0), (0.2, 0, 3.1416), fp)  # head-on, fronts 4.7 cm apart
     assert not footprints_overlap((0, 0, 0), (0, 0.32, 0), fp)
+
+
+def test_convoy_three_robots_resolves():
+    """A two-robot convoy meeting one oncoming robot resolves with every negotiating policy."""
+    from amr_negotiation import sim2d
+    from amr_negotiation.geometry import load_scenario
+
+    sc = load_scenario(Path(__file__).resolve().parents[1] / "scenarios/corridor_convoy.yaml")
+    for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
+        r = sim2d.run_episode(sc, pol, seed=0)
+        assert r["success"], pol

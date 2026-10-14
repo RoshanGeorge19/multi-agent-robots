@@ -175,7 +175,7 @@ class Agent:
         elif msg["type"] == "BID" and msg["to"] == self.id:
             pid = msg["sender"]
             if self.neg is None or self.neg["peer"] != pid:
-                if self.mode in ("CRUISE", "NEGOTIATE") and self.comms:
+                if self.comms and (self.mode in ("CRUISE", "NEGOTIATE") or self.can_renegotiate(pid)):
                     self.start_neg(t, pose, pid, cid=msg["conflict"])
                 else:
                     return
@@ -184,6 +184,21 @@ class Agent:
                 n["theirs"] = Snapshot.from_dict(msg["snapshot"])
             if msg["have_peer"]:
                 n["acked"] = True
+
+    def can_renegotiate(self, pid) -> bool:
+        """A proceeding robot that has been released past its yielder may negotiate with a new oncoming robot."""
+        c = self.prc
+        return self.mode == "PROCEED" and c is not None and c.get("released") and pid != c["peer"]
+
+    def oncoming_conflict(self, t, x, modes, exclude=None):
+        for pid, s in list(self.peers.items()):
+            s = self.fresh_peer(pid, t)
+            if s is None or pid == exclude or t < self.no_neg_until.get(pid, -1):
+                continue
+            if (s["dir"] == -self.dir and s["mode"] in modes
+                    and self.dir * (s["x"] - x) > 0 and abs(s["x"] - x) < self.p.detect_range):
+                return pid
+        return None
 
     def start_neg(self, t, pose, pid, cid=None):
         cid = cid or f"{min(self.id, pid)}-{max(self.id, pid)}@{t:.2f}"
@@ -252,14 +267,10 @@ class Agent:
                 self.begin_proceed(t, ref, yp[0])
                 return self.brake()
         if self.comms and not self.fallback_reactive:
-            for pid, s in list(self.peers.items()):
-                s = self.fresh_peer(pid, t)
-                if s is None or t < self.no_neg_until.get(pid, -1):
-                    continue
-                if (s["dir"] == -self.dir and s["mode"] in ("CRUISE", "NEGOTIATE", "WAIT_START")
-                        and self.dir * (s["x"] - x) > 0 and abs(s["x"] - x) < self.p.detect_range):
-                    self.start_neg(t, pose, pid)
-                    return self.brake()
+            pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
+            if pid is not None:
+                self.start_neg(t, pose, pid)
+                return self.brake()
         v, w, _ = self.lane_cmd(pose, self.goal_x)
         vs = self.safe_v(pose, perc.points, v)
         if self.fallback_reactive and self.reactive_blocked(t, pose, perc, v, vs):
@@ -309,7 +320,10 @@ class Agent:
                 self.neg, self.mode = None, "CRUISE"
                 self.fallback_reactive = True
             return self.brake()
-        d: Decision = decide(self.policy, [n["mine"], n["theirs"]], self.sc)
+        taken = {r.id for r in self.sc.refuges()
+                 if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
+        sc = _WithoutRefuges(self.sc, taken) if taken else self.sc
+        d: Decision = decide(self.policy, [n["mine"], n["theirs"]], sc)
         n["decided"] = t
         rec = {"t": t, "agent": self.id, "peer": n["peer"], "yielder": d.yielder, "refuge": d.refuge,
                "rule": d.rule, "t_detect": n["t0"], **{k: v for k, v in d.detail.items() if k != "plan"}}
@@ -355,6 +369,11 @@ class Agent:
         c = self.prc
         x = pose[0]
         if c.get("released"):
+            pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE"), exclude=c["peer"]) if self.comms else None
+            if pid is not None:
+                self.prc = None
+                self.start_neg(t, pose, pid)
+                return self.brake()
             if self.dir * (x - c["pass"]) > 0:
                 self.mode, self.phase, self.prc, self.neg = "CRUISE", "", None, None
                 self.log(t, "passed_refuge")
@@ -391,8 +410,10 @@ class Agent:
         lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance
         return not any(abs(px - ref.x) < lim and abs(py) < self.sc.half_width + 0.1 for px, py in perc.peers)
 
-    def refuge_taken(self, t, ref: Refuge, perc) -> bool:
+    def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
         for pid in list(self.peers):
+            if pid == ignore:
+                continue
             s = self.fresh_peer(pid, t)
             if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
                 return True
@@ -452,6 +473,19 @@ class Agent:
                 self.mode, self.phase, self.ylds, self.neg = "CRUISE", "", None, None
             return v, w
         raise RuntimeError(ph)
+
+
+class _WithoutRefuges:
+    """Scenario view that hides refuges already occupied by a third robot."""
+
+    def __init__(self, sc: Scenario, taken: set[str]):
+        self._sc, self._taken = sc, taken
+
+    def __getattr__(self, name):
+        return getattr(self._sc, name)
+
+    def refuges(self):
+        return [r for r in self._sc.refuges() if r.id not in self._taken]
 
 
 def is_negotiating(policy: dict) -> bool:
