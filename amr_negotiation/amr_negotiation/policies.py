@@ -6,6 +6,7 @@ locally once it holds both snapshots; no third message is needed to agree on the
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,7 +15,7 @@ import yaml
 from .geometry import Scenario
 from .planner import Snapshot, best_plan, feasible, refuge_by_id
 
-NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "forced")
+NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "learned", "forced")
 ALL_POLICIES = ("reactive",) + NEGOTIATING_POLICIES
 
 
@@ -161,6 +162,38 @@ def decide_cost_bid(snaps, sc, objective: str = "total_delay") -> Decision:
     return _finish(Y, _other(a, b, Y), sc, "cost_bid", detail)
 
 
+# ---------------------------------------------------------------- learned (tabular, trained in the 2D sim)
+
+_BINS = (1.0, 2.5, 5.0)
+
+
+def learned_features(a: Snapshot, b: Snapshot, sc: Scenario) -> str:
+    """Coarse, planner-free observation: per robot, binned distance to the nearest feasible refuge behind it
+    (4 = none), plus urgency order and payload flags. Shared by both robots, so they compute the same key."""
+    def behind(Y, P):
+        ds = [Y.dir * (Y.x - r.x) for r in sc.refuges() if Y.dir * (Y.x - r.x) > -0.05 and feasible(r, Y, P, sc)]
+        return 4 if not ds else sum(min(ds) > t for t in _BINS)
+    u = (a.urgency > b.urgency) - (a.urgency < b.urgency)
+    return f"{behind(a, b)}|{behind(b, a)}|{u}|{int(a.loaded)}|{int(b.loaded)}"
+
+
+def decide_learned(snaps, sc, table: dict | str | None) -> Decision:
+    """Yield the side with the lower learned mean cost; unseen observations fall back to fixed priority."""
+    a, b = _pair(snaps)
+    if isinstance(table, str):
+        with open(table) as f:
+            table = json.load(f)
+    key = learned_features(a, b, sc)
+    q = (table or {}).get(key)
+    detail = {"features": key}
+    if not q or not all(q.get(k, [0, 0])[1] for k in ("a", "b")):
+        return _finish(b, a, sc, "learned:fallback", detail)
+    ca, cb = (q[k][0] / q[k][1] for k in ("a", "b"))
+    detail["q"] = {a.id: ca, b.id: cb}
+    Y = a if ca < cb else b
+    return _finish(Y, _other(a, b, Y), sc, "learned", detail)
+
+
 # ---------------------------------------------------------------- dispatcher
 
 def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
@@ -171,6 +204,8 @@ def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
         return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))
+    if name == "learned":
+        return decide_learned(snaps, sc, policy.get("table"))
     if name == "forced":
         a, b = _pair(snaps)
         Y = a if a.id == policy["yielder"] else b
