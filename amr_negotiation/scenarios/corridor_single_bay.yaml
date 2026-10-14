@@ -1,0 +1,19 @@
+# Two TurtleBot3 Waffles meet head-on in a single-lane corridor with one pull-in bay.
+name: corridor_single_bay
+length: 8.0          # m
+width: 0.65          # m: one Waffle (0.306 m wide, 0.25 m swept radius) fits, two cannot pass
+room_length: 2.5
+room_width: 2.5
+room_refuges: true   # robots may also back out of the corridor into the end room
+bays:
+  - {x: 4.0, side: 1, width: 0.8, depth: 0.6}
+robot:
+  radius: 0.25
+  v_max: 0.26
+  v_rev_max: 0.15
+  w_max: 1.82
+  a_max: 0.5
+comms: {latency: 0.05, jitter: 0.02, loss: 0.0, rate: 5.0}
+agents:
+  - {id: A, start_x: -1.0, goal_x: 10.0, start_delay: 0.0}
+  - {id: B, start_x: 9.0, goal_x: -2.0, start_delay: 2.0}

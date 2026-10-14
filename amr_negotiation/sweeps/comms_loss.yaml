@@ -1,0 +1,10 @@
+# Robustness of the negotiating policies to packet loss.
+scenario: scenarios/corridor_single_bay.yaml
+seeds: 10
+policies:
+  - {name: rule_based, label: rules_default}
+  - {name: cost_bid}
+grid:
+  comms.loss: [0.0, 0.2, 0.5, 0.8, 0.95]
+random:
+  agents.1.start_delay: [0.0, 6.0]

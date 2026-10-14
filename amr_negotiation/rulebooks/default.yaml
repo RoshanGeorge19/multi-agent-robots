@@ -1,0 +1,13 @@
+# Ordered rulebook for the `rule_based` policy. Rules are tried top to bottom; the first rule
+# that discriminates between the two robots decides who yields. The yielder then picks its
+# lowest-cost feasible refuge. Add, remove or reorder rules to test alternative conventions.
+rules:
+  - rule: no_refuge              # a robot with no feasible refuge cannot yield
+  - rule: urgency                # lower-urgency robot yields if urgencies differ by >= threshold
+    threshold: 0.5
+  - rule: loaded                 # an empty robot yields to a loaded one
+  - rule: first_in_corridor      # the robot that entered the corridor later yields
+    min_gap: 1.0                 # seconds; closer entries are treated as simultaneous
+  - rule: refuge_behind_within   # the robot with a refuge behind it within `distance` m yields
+    distance: 2.0
+  - rule: lower_id_priority      # final tie-break: lower id has right of way
