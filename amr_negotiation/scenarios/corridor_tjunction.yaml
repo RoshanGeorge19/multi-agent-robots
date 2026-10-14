@@ -1,0 +1,13 @@
+# T-junction approximation: the stem is a deep side branch (modelled as a 2 m deep bay at x=5.5).
+# S waits at the far end of the stem and joins the main corridor towards x=-2; A and B meet head-on.
+name: corridor_tjunction
+length: 8.0
+width: 0.65
+bays:
+  - {x: 2.5, side: 1, width: 0.8, depth: 0.6}
+  - {x: 5.5, side: -1, width: 0.8, depth: 2.0}
+despawn_done: true
+agents:
+  - {id: A, start_x: -1.0, goal_x: 10.0}
+  - {id: B, start_x: 9.0, goal_x: -2.0, start_delay: 2.0}
+  - {id: S, start_x: 5.5, goal_x: -2.5, start_refuge: bay1, start_delay: 4.0}

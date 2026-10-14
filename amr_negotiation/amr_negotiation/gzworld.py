@@ -121,8 +121,8 @@ def build_world(sc: Scenario, waffle_sdf: str | Path | None = None, overhead_cam
                           "0.9 0.85 0.3 1").replace("<collision", "<!--c").replace("</collision>", "-->"))
     robots = []
     for k, a in enumerate(sc.agents):
-        yaw = 0.0 if a.direction > 0 else math.pi
-        m = robot_model(template, a.id, a.start_x, 0.0, yaw, ROBOT_COLORS[k % len(ROBOT_COLORS)])
+        x, y, yaw = sc.start_pose(a)
+        m = robot_model(template, a.id, x, y, yaw, ROBOT_COLORS[k % len(ROBOT_COLORS)])
         robots.append(ET.tostring(m, encoding="unicode"))
     cam = ""
     if overhead_camera:

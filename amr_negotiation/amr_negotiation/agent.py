@@ -56,12 +56,20 @@ class Agent:
         self.v_rev = cfg.v_rev_max or sc.robot.v_rev_max
         self.r = sc.robot.radius
         self.comms = policy["name"] != "reactive" and policy.get("comms", True)
+        self.initial_mode = "CRUISE"
         self.mode = "WAIT_START" if cfg.start_delay > 0 else "CRUISE"
         self.phase = ""
         self.entered_t: float | None = None
         self.peers: dict[str, dict] = {}
         self.neg: dict | None = None
         self.ylds: dict | None = None
+        if cfg.start_refuge:  # e.g. waiting in the stem of a T-junction: leave like a parked yielder
+            ref = refuge_by_id(sc, cfg.start_refuge)
+            self.initial_mode, self.phase = "YIELD", "parked"
+            self.ylds = {"refuge": ref, "refuge_id": ref.id, "peer": None, "t0": 0.0, "rule": "start",
+                         "park_timeout": 0.0, "t_parked": 0.0, "forward_out": True}
+            if cfg.start_delay <= 0:
+                self.mode = "YIELD"
         self.prc: dict | None = None
         self.fallback_reactive = policy["name"] == "reactive"
         self.blocked: dict | None = None
@@ -232,7 +240,7 @@ class Agent:
         m = self.mode
         if m == "WAIT_START":
             if t >= self.cfg.start_delay:
-                self.mode = "CRUISE"
+                self.mode = self.initial_mode
             return 0.0, 0.0
         if m == "DONE":
             return 0.0, 0.0
@@ -406,8 +414,8 @@ class Agent:
             return self.lane_clear(ref, perc)
         return False
 
-    def lane_clear(self, ref: Refuge, perc) -> bool:
-        lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance
+    def lane_clear(self, ref: Refuge, perc, extra: float = 0.0) -> bool:
+        lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance + extra
         return not any(abs(px - ref.x) < lim and abs(py) < self.sc.half_width + 0.1 for px, py in perc.peers)
 
     def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
@@ -460,9 +468,14 @@ class Agent:
                 self.log(t, "leaving_refuge", refuge=ref.id)
             return 0.0, 0.0
         if ph == "back_out":
-            if not self.lane_clear(ref, perc):
-                return 0.0, 0.0
-            v, w, done = self.point_cmd(pose, ref.x, 0.0, reverse=True)
+            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0):
+                if abs(pose[1]) > self.sc.half_width + self.r:
+                    self.phase = "parked"  # still inside the refuge: let the peer pass first
+                    return 0.0, 0.0
+                if not c.get("forward_out"):
+                    return 0.0, 0.0
+                # leaving a T-junction stem and already in the lane: join it and negotiate normally
+            v, w, done = self.point_cmd(pose, ref.x, 0.0, reverse=not c.get("forward_out"))
             if done:
                 self.phase = "turn_out"
             return v, w

@@ -72,6 +72,7 @@ class AgentConfig:
     loaded: bool = False
     v_max: float | None = None
     v_rev_max: float | None = None
+    start_refuge: str | None = None  # start parked in this refuge, e.g. the stem of a T-junction (a deep bay)
 
     @property
     def direction(self) -> int:
@@ -145,6 +146,12 @@ class Scenario:
             out.append(Refuge("room_lo", -off, 1, park, 2 * off, "room"))
             out.append(Refuge("room_hi", self.length + off, 1, park, 2 * off, "room"))
         return out
+
+    def start_pose(self, a: AgentConfig) -> tuple[float, float, float]:
+        if a.start_refuge:
+            r = next(r for r in self.refuges() if r.id == a.start_refuge)
+            return r.x, r.park_y, -r.side * math.pi / 2
+        return a.start_x, 0.0, 0.0 if a.direction > 0 else math.pi
 
     def in_corridor(self, x: float) -> bool:
         return 0.0 <= x <= self.length
