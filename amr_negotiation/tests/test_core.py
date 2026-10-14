@@ -146,3 +146,12 @@ def test_gz_world_generation(sc, tmp_path):
     assert "/A/cmd_vel" in w.read_text() and "camera/image_raw" not in w.read_text()
     for cx, cy, _, _ in gzworld.wall_boxes(sc):
         assert not gzworld._inside(sc, cx, cy)
+
+
+def test_footprint_overlap():
+    from amr_negotiation.geometry import RobotSpec, footprints_overlap
+
+    fp = RobotSpec().footprint
+    assert footprints_overlap((0, 0, 0), (0.1, 0, 3.1416), fp)
+    assert not footprints_overlap((0, 0, 0), (0.2, 0, 3.1416), fp)  # head-on, fronts 4.7 cm apart
+    assert not footprints_overlap((0, 0, 0), (0, 0.32, 0), fp)

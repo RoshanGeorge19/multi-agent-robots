@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .geometry import AgentConfig, Refuge, Scenario
-from .planner import Snapshot, hold_x, pass_x
+from .planner import Snapshot, hold_x, pass_x, refuge_by_id
 from .policies import NEGOTIATING_POLICIES, Decision, decide, refuge_of
 
 
@@ -229,12 +229,28 @@ class Agent:
             return self.tick_proceed(t, pose, perc)
         return self.tick_cruise(t, pose, perc)
 
+    def yielding_peer(self, t, x):
+        """A fresh, oncoming peer that has announced it is yielding (so this robot should proceed)."""
+        for pid, s in list(self.peers.items()):
+            s = self.fresh_peer(pid, t)
+            if (s is not None and s["mode"] == "YIELD" and s.get("refuge") and s["dir"] == -self.dir
+                    and self.dir * (s["x"] - x) > -0.3):
+                return pid, s
+        return None
+
     def tick_cruise(self, t, pose, perc):
         x = pose[0]
         if self.dir * (x - self.goal_x) >= -self.p.goal_tol:
             self.mode, self.done_t = "DONE", t
             self.log(t, "goal_reached")
             return 0.0, 0.0
+        yp = self.yielding_peer(t, x) if self.comms else None
+        if yp is not None:
+            ref = refuge_by_id(self.sc, yp[1]["refuge"])
+            if ref is not None and self.dir * (pass_x(ref, self.dir, self.sc) - x) > 0:
+                self.log(t, "peer_yielding", peer=yp[0], refuge=ref.id)
+                self.begin_proceed(t, ref, yp[0])
+                return self.brake()
         if self.comms and not self.fallback_reactive:
             for pid, s in list(self.peers.items()):
                 s = self.fresh_peer(pid, t)
@@ -270,7 +286,8 @@ class Agent:
             return False
         x = pose[0]
         behind = [r for r in self.sc.refuges()
-                  if self.dir * (r.x - x) <= 0.05 and self.dir * (self.goal_x - r.x) > 0]
+                  if self.dir * (r.x - x) <= 0.05 and self.dir * (self.goal_x - r.x) > 0
+                  and not self.refuge_taken(t, r, perc)]
         if not behind:
             return False
         ref = min(behind, key=lambda r: abs(r.x - x))
@@ -282,6 +299,10 @@ class Agent:
     def tick_negotiate(self, t, pose, perc):
         n = self.neg
         if n["theirs"] is None:
+            yp = self.yielding_peer(t, pose[0])
+            if yp is not None and yp[0] == n["peer"]:
+                self.neg, self.mode = None, "CRUISE"
+                return self.tick_cruise(t, pose, perc)
             if t - n["t0"] > self.p.neg_timeout:
                 self.log(t, "negotiation_timeout", peer=n["peer"])
                 self.no_neg_until[n["peer"]] = t + 10.0
@@ -370,10 +391,32 @@ class Agent:
         lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance
         return not any(abs(px - ref.x) < lim and abs(py) < self.sc.half_width + 0.1 for px, py in perc.peers)
 
+    def refuge_taken(self, t, ref: Refuge, perc) -> bool:
+        for pid in list(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
+                return True
+        hw = self.sc.half_width
+        return any(abs(px - ref.x) < ref.span / 2 + 0.1 and abs(py) > hw - 0.05 and py * ref.side > 0
+                   for px, py in perc.peers) if ref.kind == "bay" else False
+
     def tick_yield(self, t, pose, perc):
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
+        if ph in ("to_refuge", "turn_in"):
+            # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
+            for pid in list(self.peers):
+                s = self.fresh_peer(pid, t)
+                if (s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id
+                        and s["phase"] in ("to_refuge", "turn_in", "park_in", "parked")
+                        and (s["phase"] != ph or self.id > pid)
+                        and self.dir * (pass_x(ref, self.dir, self.sc) - pose[0]) > 0):
+                    self.log(t, "yield_conflict", peer=pid, refuge=ref.id)
+                    self.n_yields -= 1
+                    self.ylds = None
+                    self.begin_proceed(t, ref, pid)
+                    return self.brake()
         if ph == "to_refuge":
             v, w, done = self.lane_cmd(pose, ref.x)
             if done:

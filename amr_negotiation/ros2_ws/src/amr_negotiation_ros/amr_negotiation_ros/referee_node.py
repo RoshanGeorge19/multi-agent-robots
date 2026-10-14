@@ -15,9 +15,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
-from amr_negotiation.geometry import load_scenario
-
-CONTACT = 0.4
+from amr_negotiation.geometry import footprints_overlap, load_scenario
 
 
 class Referee(Node):
@@ -101,7 +99,7 @@ class Referee(Node):
                 pa, pb = self.pose[self.ids[a]], self.pose[self.ids[b]]
                 d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
                 self.min_dist = min(self.min_dist, d)
-                if d < CONTACT and self.collision_t is None:
+                if self.collision_t is None and d < 0.6 and footprints_overlap(pa, pb, self.sc.robot.footprint):
                     self.collision_t = t
                     self.get_logger().warn(f"contact at t={t:.2f}s d={d:.3f}")
         self.trace.append({"t": round(t, 2), **{i: [round(v, 4) for v in self.pose[i]] for i in self.ids}})

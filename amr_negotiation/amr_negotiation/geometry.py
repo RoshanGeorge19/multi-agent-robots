@@ -24,6 +24,8 @@ class RobotSpec:
     """
 
     radius: float = 0.25
+    # body rectangle in the base_footprint frame (x0, x1, y0, y1): Waffle is 281 x 306 mm
+    footprint: tuple = (-0.2045, 0.0765, -0.153, 0.153)
     v_max: float = 0.26
     v_rev_max: float = 0.15
     w_max: float = 1.82
@@ -192,3 +194,23 @@ def deep_update(base: dict, upd: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+def footprint_corners(x: float, y: float, th: float, fp) -> list[tuple[float, float]]:
+    c, s = math.cos(th), math.sin(th)
+    x0, x1, y0, y1 = fp
+    return [(x + c * px - s * py, y + s * px + c * py) for px, py in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))]
+
+
+def footprints_overlap(p, q, fp) -> bool:
+    """Separating-axis test between two robot rectangles; p, q = (x, y, theta)."""
+    A, B = footprint_corners(*p[:3], fp), footprint_corners(*q[:3], fp)
+    for poly in (A, B):
+        for i in range(4):
+            (ax, ay), (bx, by) = poly[i], poly[(i + 1) % 4]
+            nx, ny = by - ay, ax - bx
+            pa = [nx * u + ny * v for u, v in A]
+            pb = [nx * u + ny * v for u, v in B]
+            if max(pa) < min(pb) or max(pb) < min(pa):
+                return False
+    return True

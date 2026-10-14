@@ -32,7 +32,7 @@ def setup(context):
     record = lc("record").lower() == "true"
     gui = lc("gui").lower() == "true"
     tag = f"{sc.name}_{lc('policy')}_s{lc('seed')}"
-    world, bridge = gzworld.write_world(sc, out / "worlds", overhead_camera=record,
+    world, bridge = gzworld.write_world(sc, out / "worlds" / tag, overhead_camera=record,
                                         camera_size=(960, 540))
     gz_cmd = ["gz", "sim", str(world)] + ([] if gui else ["-s", "--headless-rendering"])
     actions = [ExecuteProcess(cmd=gz_cmd, output="screen" if lc("verbose") == "true" else "log")]

@@ -11,7 +11,7 @@ from functools import lru_cache
 import numpy as np
 
 from .agent import Agent, Perception
-from .geometry import Scenario, scenario_from_dict
+from .geometry import Scenario, footprints_overlap, scenario_from_dict
 
 
 def _circle_points(x, y, r, n=24):
@@ -80,7 +80,6 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
     wall_hits = 0
     reverse = {i: 0.0 for i in ids}
     trace = []
-    contact = 2 * getattr(rs, "contact_radius", 0.2)
     step = 0
     while t <= sc.t_max:
         cmds = {}
@@ -111,14 +110,14 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
             s[2] = (s[2] + s[4] * dt + math.pi) % (2 * math.pi) - math.pi
             if s[3] < 0:
                 reverse[i] += -s[3] * dt
-            if step % 10 == 0 and not sc.circle_free(s[0], s[1], getattr(rs, "contact_radius", 0.2)):
+            if step % 10 == 0 and not sc.circle_free(s[0], s[1], 0.15):
                 wall_hits += 1
         for a_i in range(len(ids)):
             for b_i in range(a_i + 1, len(ids)):
                 p, q = st[ids[a_i]], st[ids[b_i]]
                 d = math.hypot(p[0] - q[0], p[1] - q[1])
                 min_dist = min(min_dist, d)
-                if d < contact and collision_t is None:
+                if collision_t is None and d < 0.6 and footprints_overlap(p, q, rs.footprint):
                     collision_t = t
         if record and step % record_every == 0:
             trace.append({"t": round(t, 3), **{i: [round(float(v), 4) for v in st[i][:4]] + [agents[i].mode, agents[i].phase]
