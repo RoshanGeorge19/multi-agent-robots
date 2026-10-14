@@ -283,3 +283,11 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
                 spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
             r = run_episode(sc, spec, seed=0)
             assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
+
+
+def test_reservation_waits_outside_while_corridor_is_held():
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml"),
+                         parse_set(["agents.1.start_delay=5.0"]))
+    r = run_episode(sc, {"name": "reservation"}, seed=0)
+    assert r["success"] and not r["collision"]
+    assert r["yielder"] == "B" and r["rule"] == "reservation" and r["refuge"] == "room_hi"
