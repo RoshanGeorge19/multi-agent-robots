@@ -170,7 +170,8 @@ class Agent:
         x, y, th, v = pose
         return {"type": "STATE", "sender": self.id, "t": t, "x": x, "y": y, "theta": th, "v": v,
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
-                "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t}
+                "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
+                "with": (self.ylds or self.prc or {}).get("peer")}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
@@ -404,6 +405,11 @@ class Agent:
         ref: Refuge = c["refuge"]
         need = ref.span / 2 + self.r + self.sc.clearance
         pdir = -self.dir
+        for pid in list(self.peers):  # e.g. a convoy follower that is also passing this refuge
+            s = self.fresh_peer(pid, t)
+            if (pid != c["peer"] and s is not None and s["mode"] == "PROCEED" and s.get("with") == self.id
+                    and pdir * (s["x"] - ref.x) <= need):
+                return False
         if c["peer"]:
             s = self.fresh_peer(c["peer"], t)
             if s is not None:
@@ -446,6 +452,17 @@ class Agent:
                     self.ylds = None
                     self.begin_proceed(t, ref, pid)
                     return self.brake()
+        if ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
+            # lost messages left both robots yielding to each other in different refuges: the lower id keeps yielding
+            s = self.fresh_peer(c["peer"], t)
+            if (s is not None and s["mode"] == "YIELD" and s.get("with") == self.id and s.get("refuge")
+                    and s["phase"] in ("to_refuge", "turn_in", "park_in", "parked")):
+                pref = refuge_by_id(self.sc, s["refuge"])
+                self.log(t, "yield_conflict", peer=c["peer"], refuge=pref.id)
+                self.n_yields -= 1
+                self.ylds = None
+                self.begin_proceed(t, pref, c["peer"])
+                return self.brake()
         if ph == "to_refuge":
             v, w, done = self.lane_cmd(pose, ref.x)
             if done:
