@@ -245,6 +245,50 @@ def test_tjunction_goal_refuge():
     )
 
 
+def test_scenario_goals_reachable_without_touching_room_walls():
+    """A goal closer than radius + stop margin to an end wall is only reachable in 2D (no wall perception)."""
+    for f in sorted((ROOT / "scenarios").glob("*.yaml")):
+        sc = load_scenario(f)
+        m = sc.robot.radius + 0.10 + 0.05
+        for a in sc.agents:
+            assert -sc.room_length + m <= a.goal_x <= sc.length + sc.room_length - m, (f.name, a.id, a.goal_x)
+
+
+def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
+    """A robot deep in the stem cannot see the corridor; a fresh STATE of an approaching peer still blocks its exit."""
+    from amr_negotiation.agent import Agent, Perception
+    from amr_negotiation.planner import refuge_by_id
+
+    sc = load_scenario(ROOT / "scenarios" / "corridor_tjunction.yaml")
+    s = Agent(next(a for a in sc.agents if a.id == "S"), sc, {"name": "fixed_priority"})
+    stem = refuge_by_id(sc, "bay1")
+    s.peers["B"] = {"x": stem.x + 0.8, "y": 0.0, "v": -0.2, "dir": -1, "mode": "PROCEED", "_rx": 10.0}
+    assert s.lane_clear(stem, Perception(), t=None)
+    assert not s.lane_clear(stem, Perception(), t=10.0)
+    s.peers["B"].update(x=stem.x - 0.8)  # already past the stem
+    assert s.lane_clear(stem, Perception(), t=10.0)
+
+
+def test_learned_policy_uses_table_and_falls_back():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    r0 = run_episode(sc, {"name": "learned", "table": {}}, seed=0)
+    key = r0["decisions"][0]["features"]
+    assert r0["success"] and r0["decisions"][0]["rule"] == "learned:fallback"
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [100.0, 1], "b": [1.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"B"}
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [1.0, 1], "b": [100.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"A"}
+
+
+def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc.blocked_bays = ["bay1"]
+    for pol in ("fixed_priority", "cost_bid"):
+        r = run_episode(sc, {"name": pol}, seed=0, record=True)
+        assert r["success"] and not r["collision"], pol
+        assert any(e["event"] == "refuge_blocked" for e in r["events"]), pol
+
+
 def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
     from amr_negotiation.policies import decide_cost_bid, decide_group_bid
 
