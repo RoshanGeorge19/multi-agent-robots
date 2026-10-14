@@ -33,6 +33,7 @@ class AgentParams:
     detect_range: float = 6.0
     neg_period: float = 0.3
     neg_timeout: float = 3.0
+    share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
     state_timeout: float = 1.0
     stop_margin: float = 0.10
     lateral_margin: float = 0.03
@@ -52,6 +53,10 @@ class Agent:
         self.p = params or AgentParams(**policy.get("agent_params", {}))
         self.rng = rng or np.random.default_rng()
         self.id, self.dir, self.goal_x = cfg.id, cfg.direction, cfg.goal_x
+        known = cfg.known_refuges
+        self.unknown = set() if known is None else {
+            r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
+        self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
         self.v_max = cfg.v_max or sc.robot.v_max
         self.v_rev = cfg.v_rev_max or sc.robot.v_rev_max
         self.r = sc.robot.radius
@@ -178,13 +183,23 @@ class Agent:
         return {"type": "BID", "sender": self.id, "to": n["peer"], "t": t, "conflict": n["cid"],
                 "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
                 "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
-                "have_dec": n.get("their_dec") is not None}
+                "have_dec": n.get("their_dec") is not None,
+                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None}
+
+    def learn_refuges(self, t, ids, source):
+        for rid in ids:
+            if rid in self.unknown:
+                self.unknown.discard(rid)
+                self.log(t, "refuge_learned", refuge=rid, source=source)
+        self.map = _WithoutRefuges(self.sc, self.unknown) if self.unknown else self.sc
 
     def handle(self, t, pose, msg):
         if msg["type"] == "STATE":
             self.peers[msg["sender"]] = {**msg, "_rx": t}
         elif msg["type"] == "BID" and msg["to"] == self.id:
             pid = msg["sender"]
+            if msg.get("known"):
+                self.learn_refuges(t, msg["known"], pid)
             if self.neg is None or self.neg["peer"] != pid:
                 if self.comms and (self.mode in ("CRUISE", "NEGOTIATE") or self.can_renegotiate(pid)):
                     self.start_neg(t, pose, pid, cid=msg["conflict"])
@@ -312,7 +327,7 @@ class Agent:
         if t - self.blocked["t0"] < self.blocked["patience"]:
             return False
         x = pose[0]
-        behind = [r for r in self.sc.refuges()
+        behind = [r for r in self.map.refuges()
                   if self.dir * (r.x - x) <= 0.05 and self.dir * (self.goal_x - r.x) > 0
                   and not self.refuge_taken(t, r, perc)]
         if not behind:
@@ -337,9 +352,9 @@ class Agent:
                 self.fallback_reactive = True
             return self.brake()
         if n.get("dec") is None:
-            taken = {r.id for r in self.sc.refuges()
+            taken = {r.id for r in self.map.refuges()
                      if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
-            sc = _WithoutRefuges(self.sc, taken) if taken else self.sc
+            sc = _WithoutRefuges(self.map, taken) if taken else self.map
             d: Decision = decide(self.policy, [n["mine"], n["theirs"]], sc)
             n["decided"], n["dec"] = t, d
             rec = {"t": t, "agent": self.id, "peer": n["peer"], "yielder": d.yielder, "refuge": d.refuge,
@@ -358,6 +373,8 @@ class Agent:
             if self.id > n["peer"]:  # disagreement after lost messages: the lower id's decision wins
                 yielder = td["yielder"]
                 ref = refuge_by_id(self.sc, td["refuge"]) if td["refuge"] else None
+                if ref is not None:  # the peer's decision may name a bay we didn't know
+                    self.learn_refuges(t, [ref.id], n["peer"])
             self.log(t, "decision_mismatch", adopted=self.id > n["peer"], yielder=yielder)
         elif td is None:
             self.log(t, "commit_timeout", peer=n["peer"])
