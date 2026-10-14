@@ -18,9 +18,21 @@ def sc():
 
 
 def snap(id, x, dir, entered=0.0, urgency=1.0, loaded=False, v=0.26):
-    return Snapshot(id=id, t=10.0, x=x, dir=dir, v=v, goal_x=10.0 if dir > 0 else -2.0,
-                    entered_t=entered, urgency=urgency, loaded=loaded, v_max=0.26,
-                    v_rev_max=0.15, w_max=1.82, a_max=0.5)
+    return Snapshot(
+        id=id,
+        t=10.0,
+        x=x,
+        dir=dir,
+        v=v,
+        goal_x=10.0 if dir > 0 else -2.0,
+        entered_t=entered,
+        urgency=urgency,
+        loaded=loaded,
+        v_max=0.26,
+        v_rev_max=0.15,
+        w_max=1.82,
+        a_max=0.5,
+    )
 
 
 def test_geometry(sc):
@@ -40,8 +52,8 @@ def test_corridor_is_single_lane(sc):
 
 def test_bay_behind_feasible_bay_ahead_not(sc):
     bay = next(r for r in sc.refuges() if r.id == "bay0")
-    a = snap("A", 3.0, +1)   # bay ahead of A by 1 m
-    b = snap("B", 5.5, -1)   # bay ahead of B by 1.5 m
+    a = snap("A", 3.0, +1)  # bay ahead of A by 1 m
+    b = snap("B", 5.5, -1)  # bay ahead of B by 1.5 m
     assert feasible(bay, a, b, sc)
     a_past = snap("A", 5.0, +1)  # A already past the bay: it is behind A, A can reverse into it
     b_close = snap("B", 6.0, -1)
@@ -173,10 +185,31 @@ def test_tjunction_stem_robot_joins():
     from amr_negotiation import sim2d
     from amr_negotiation.geometry import load_scenario
 
-    sc = load_scenario(
-        Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction.yaml"
-    )
+    sc = load_scenario(Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction.yaml")
     assert sc.start_pose(sc.agents[2])[1] < -sc.half_width
     for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
         r = sim2d.run_episode(sc, pol, seed=0)
         assert r["success"], pol
+
+
+def test_lossy_extreme_comms_no_shared_bay():
+    """At 90% loss / 8 s latency one robot falls back to reactive; the other must not follow it into the same bay."""
+    from amr_negotiation import sim2d, sweep
+
+    sc = sweep.apply_overrides(
+        sweep.load_scenario(
+            str(Path(__file__).resolve().parents[1] / "scenarios/corridor_single_bay.yaml")
+        ),
+        sweep._overrides(
+            {
+                "robot.v_max": 0.5,
+                "comms.loss": 0.9,
+                "comms.latency": 8.0,
+                "agents.1.start_delay": 3.866,
+            }
+        ),
+    )
+    r = sim2d.run_episode(
+        sc, {"name": "fixed_priority", "agent_params": {"detect_range": 6.0}}, seed=15
+    )
+    assert r["success"] and not r["collision"]

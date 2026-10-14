@@ -170,12 +170,15 @@ class Agent:
         x, y, th, v = pose
         return {"type": "STATE", "sender": self.id, "t": t, "x": x, "y": y, "theta": th, "v": v,
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
-                "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t}
+                "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
+                "with": (self.ylds or self.prc or {}).get("peer")}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
         return {"type": "BID", "sender": self.id, "to": n["peer"], "t": t, "conflict": n["cid"],
-                "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None}
+                "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
+                "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
+                "have_dec": n.get("their_dec") is not None}
 
     def handle(self, t, pose, msg):
         if msg["type"] == "STATE":
@@ -192,6 +195,10 @@ class Agent:
                 n["theirs"] = Snapshot.from_dict(msg["snapshot"])
             if msg["have_peer"]:
                 n["acked"] = True
+            if msg.get("decision"):
+                n["their_dec"] = msg["decision"]
+            if msg.get("have_dec"):
+                n["dec_acked"] = True
 
     def can_renegotiate(self, pid) -> bool:
         """A proceeding robot that has been released past its yielder may negotiate with a new oncoming robot."""
@@ -230,7 +237,8 @@ class Agent:
                 self.last_state_t = t
             n = self.neg
             due = n is not None and t - n["last_tx"] >= self.p.neg_period - 1e-9
-            if due and (n["decided"] is None or (not n["acked"] and t - n["decided"] < self.p.neg_timeout)):
+            if due and (self.mode == "NEGOTIATE" or (n["decided"] is not None and not n.get("dec_acked")
+                                                     and t - n["decided"] < self.p.neg_timeout)):
                 out.append(self.bid_msg(t))
                 n["last_tx"] = t
         self.msgs_sent += len(out)
@@ -328,22 +336,35 @@ class Agent:
                 self.neg, self.mode = None, "CRUISE"
                 self.fallback_reactive = True
             return self.brake()
-        taken = {r.id for r in self.sc.refuges()
-                 if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
-        sc = _WithoutRefuges(self.sc, taken) if taken else self.sc
-        d: Decision = decide(self.policy, [n["mine"], n["theirs"]], sc)
-        n["decided"] = t
-        rec = {"t": t, "agent": self.id, "peer": n["peer"], "yielder": d.yielder, "refuge": d.refuge,
-               "rule": d.rule, "t_detect": n["t0"], **{k: v for k, v in d.detail.items() if k != "plan"}}
-        if "plan" in d.detail:
-            rec["predicted"] = d.detail["plan"]
-        self.decisions.append(rec)
-        self.log(t, "decision", yielder=d.yielder, refuge=d.refuge, rule=d.rule)
-        ref = refuge_of(d, self.sc)
+        if n.get("dec") is None:
+            taken = {r.id for r in self.sc.refuges()
+                     if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
+            sc = _WithoutRefuges(self.sc, taken) if taken else self.sc
+            d: Decision = decide(self.policy, [n["mine"], n["theirs"]], sc)
+            n["decided"], n["dec"] = t, d
+            rec = {"t": t, "agent": self.id, "peer": n["peer"], "yielder": d.yielder, "refuge": d.refuge,
+                   "rule": d.rule, "t_detect": n["t0"], **{k: v for k, v in d.detail.items() if k != "plan"}}
+            if "plan" in d.detail:
+                rec["predicted"] = d.detail["plan"]
+            self.decisions.append(rec)
+            self.log(t, "decision", yielder=d.yielder, refuge=d.refuge, rule=d.rule)
+        d = n["dec"]
+        td = n.get("their_dec")
+        # commit: act once the peer's decision has arrived (or the commit window expires)
+        if td is None and t - n["decided"] < self.p.neg_timeout:
+            return self.brake()
+        yielder, ref = d.yielder, refuge_of(d, self.sc)
+        if td is not None and (td["yielder"], td["refuge"]) != (d.yielder, d.refuge):
+            if self.id > n["peer"]:  # disagreement after lost messages: the lower id's decision wins
+                yielder = td["yielder"]
+                ref = refuge_by_id(self.sc, td["refuge"]) if td["refuge"] else None
+            self.log(t, "decision_mismatch", adopted=self.id > n["peer"], yielder=yielder)
+        elif td is None:
+            self.log(t, "commit_timeout", peer=n["peer"])
         if ref is None:
             self.mode, self.fallback_reactive = "CRUISE", True
             self.no_neg_until[n["peer"]] = t + 10.0
-        elif d.yielder == self.id:
+        elif yielder == self.id:
             self.begin_yield(t, ref, peer=n["peer"], rule=d.rule)
         else:
             self.begin_proceed(t, ref, n["peer"])
@@ -387,6 +408,13 @@ class Agent:
                 self.log(t, "passed_refuge")
             v, w, _ = self.lane_cmd(pose, self.goal_x)
             return self.safe_v(pose, perc.points, v), w
+        s = self.fresh_peer(c["peer"], t) if self.comms else None
+        if s is not None and s["mode"] == "CRUISE" and s["dir"] != self.dir and self.dir * (s["x"] - x) > 0:
+            # the robot we are waiting for is driving towards us, not yielding: the agreement is stale
+            self.log(t, "proceed_contradicted", peer=c["peer"])
+            self.prc = None
+            self.start_neg(t, pose, s["sender"])
+            return self.brake()
         if self.peer_out_of_lane(t, c["peer"], c["refuge"], perc):
             c["released"] = True
             self.phase = "pass"
@@ -404,6 +432,11 @@ class Agent:
         ref: Refuge = c["refuge"]
         need = ref.span / 2 + self.r + self.sc.clearance
         pdir = -self.dir
+        for pid in list(self.peers):  # e.g. a convoy follower that is also passing this refuge
+            s = self.fresh_peer(pid, t)
+            if (pid != c["peer"] and s is not None and s["mode"] == "PROCEED" and s.get("with") == self.id
+                    and pdir * (s["x"] - ref.x) <= need):
+                return False
         if c["peer"]:
             s = self.fresh_peer(c["peer"], t)
             if s is not None:
@@ -425,9 +458,22 @@ class Agent:
             s = self.fresh_peer(pid, t)
             if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
                 return True
+        return self.bay_seen_occupied(ref, perc)
+
+    def bay_seen_occupied(self, ref: Refuge, perc) -> bool:
         hw = self.sc.half_width
         return any(abs(px - ref.x) < ref.span / 2 + 0.1 and abs(py) > hw - 0.05 and py * ref.side > 0
                    for px, py in perc.peers) if ref.kind == "bay" else False
+
+    def passer_pending(self, t, ref: Refuge) -> bool:
+        """A peer is still proceeding past this refuge on the understanding that we wait in it."""
+        need = ref.span / 2 + 2 * self.r
+        for pid in list(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and s["mode"] == "PROCEED" and s.get("with") == self.id \
+                    and s["dir"] * (s["x"] - ref.x) <= need:
+                return True
+        return False
 
     def tick_yield(self, t, pose, perc):
         c = self.ylds
@@ -446,8 +492,27 @@ class Agent:
                     self.ylds = None
                     self.begin_proceed(t, ref, pid)
                     return self.brake()
+        if ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
+            # lost messages left both robots yielding to each other in different refuges: the lower id keeps yielding
+            s = self.fresh_peer(c["peer"], t)
+            if (s is not None and s["mode"] == "YIELD" and s.get("with") == self.id and s.get("refuge")
+                    and s["phase"] in ("to_refuge", "turn_in", "park_in", "parked")):
+                pref = refuge_by_id(self.sc, s["refuge"])
+                self.log(t, "yield_conflict", peer=c["peer"], refuge=pref.id)
+                self.n_yields -= 1
+                self.ylds = None
+                self.begin_proceed(t, pref, c["peer"])
+                return self.brake()
         if ph == "to_refuge":
             v, w, done = self.lane_cmd(pose, ref.x)
+            if done and self.bay_seen_occupied(ref, perc):
+                # sensors show another robot already in the bay (decisions diverged): pass it instead
+                self.log(t, "refuge_occupied", refuge=ref.id)
+                self.n_yields -= 1
+                pid = c["peer"]
+                self.ylds = None
+                self.begin_proceed(t, ref, pid)
+                return self.brake()
             if done:
                 self.phase = "turn_in"
             return self.safe_v(pose, perc.points, v), w
@@ -468,11 +533,13 @@ class Agent:
                 self.log(t, "leaving_refuge", refuge=ref.id)
             return 0.0, 0.0
         if ph == "back_out":
-            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0):
+            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0) or (
+                    not c.get("forward_out") and self.passer_pending(t, ref)):
                 if abs(pose[1]) > self.sc.half_width + self.r:
                     self.phase = "parked"  # still inside the refuge: let the peer pass first
                     return 0.0, 0.0
                 if not c.get("forward_out"):
+                    self.phase = "park_in"  # partly out and the lane is not clear: drive back in and wait
                     return 0.0, 0.0
                 # leaving a T-junction stem and already in the lane: join it and negotiate normally
             v, w, done = self.point_cmd(pose, ref.x, 0.0, reverse=not c.get("forward_out"))
