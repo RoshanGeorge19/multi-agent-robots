@@ -596,8 +596,18 @@ class Agent:
             and abs(py) < self.sc.half_width + 0.1
             # a stationary robot waiting to enter this refuge only blocks us inside the base window
             and not (abs(px - ref.x) >= base and any(abs(px - wx) < 0.3 for wx in waiting))
-            for px, py in perc.peers
+            for px, py in self.known_peer_positions(t, perc, ref)
         )
+
+    def known_peer_positions(self, t, perc, ref: Refuge | None = None) -> list:
+        """Sensed peers plus peers whose fresh STATE says they are driving towards `ref`
+        (a real lidar inside a deep refuge is occluded by its walls)."""
+        pts = list(perc.peers)
+        if t is not None and ref is not None:
+            pts += [(s["x"], s["y"]) for pid in list(self.peers)
+                    if (s := self.fresh_peer(pid, t)) is not None and s["mode"] != "DONE"
+                    and abs(s["v"]) > 0.05 and s["dir"] * (ref.x - s["x"]) > 0]
+        return pts
 
     def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
         for pid in list(self.peers):

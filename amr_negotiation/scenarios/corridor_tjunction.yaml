@@ -10,4 +10,4 @@ despawn_done: true
 agents:
   - {id: A, start_x: -1.0, goal_x: 10.0}
   - {id: B, start_x: 9.0, goal_x: -2.0, start_delay: 2.0}
-  - {id: S, start_x: 5.5, goal_x: -2.5, start_refuge: bay1, start_delay: 4.0}
+  - {id: S, start_x: 5.5, goal_x: -1.5, start_refuge: bay1, start_delay: 4.0}

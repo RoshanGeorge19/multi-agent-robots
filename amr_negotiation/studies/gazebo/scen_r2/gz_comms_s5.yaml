@@ -1,0 +1,31 @@
+name: gz_comms_s5
+length: 8.0
+width: 0.65
+room_length: 2.5
+room_width: 2.5
+room_refuges: true
+bays:
+- x: 4.0
+  side: 1
+  width: 0.8
+  depth: 0.6
+robot:
+  radius: 0.25
+  v_max: 0.26
+  v_rev_max: 0.15
+  w_max: 1.82
+  a_max: 0.5
+comms:
+  latency: 0.5
+  jitter: 0.2
+  loss: 0.5
+  rate: 5.0
+agents:
+- id: A
+  start_x: -1.0
+  goal_x: 10.0
+  start_delay: 0.0
+- id: B
+  start_x: 9.0
+  goal_x: -2.0
+  start_delay: 1.329
