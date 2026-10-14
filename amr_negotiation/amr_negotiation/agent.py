@@ -98,9 +98,23 @@ class Agent:
     def snapshot(self, t, pose) -> Snapshot:
         x, _, th, v = pose
         fwd = v * math.cos(th - self.facing())
+        group = self.followers(t, x) if self.policy.get("name") == "group_bid" else None
         return Snapshot(self.id, t, x, self.dir, max(0.0, fwd), self.goal_x, self.entered_t,
                         self.cfg.urgency, self.cfg.loaded, self.v_max, self.v_rev,
-                        self.sc.robot.w_max, self.sc.robot.a_max)
+                        self.sc.robot.w_max, self.sc.robot.a_max, group=group or None)
+
+    def followers(self, t, x) -> list[Snapshot]:
+        """Same-direction robots behind us (from STATE) that will also meet the oncoming robot."""
+        out = []
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if (s is None or s["dir"] != self.dir or s["mode"] in ("DONE", "YIELD")
+                    or not 0 < self.dir * (x - s["x"]) < self.p.detect_range):
+                continue
+            out.append(Snapshot(pid, t, s["x"], s["dir"], max(0.0, s["v"]), s["goal_x"], s.get("entered_t"),
+                                s.get("urgency", 1.0), s.get("loaded", False), self.v_max, self.v_rev,
+                                self.sc.robot.w_max, self.sc.robot.a_max))
+        return sorted(out, key=lambda f: -self.dir * f.x)
 
     def fresh_peer(self, pid: str, t: float) -> dict | None:
         s = self.peers.get(pid)
@@ -179,7 +193,8 @@ class Agent:
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
                 "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
                 "with": (self.ylds or self.prc or {}).get("peer"),
-                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None}
+                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None,
+                "urgency": self.cfg.urgency, "loaded": self.cfg.loaded}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
@@ -287,12 +302,36 @@ class Agent:
                 return pid, s
         return None
 
+    def make_room(self, t, x, perc):
+        """A same-direction robot just ahead must reverse into a refuge we are blocking (e.g. a convoy leader
+        that yielded): back into a free refuge of our own. Returns (refuge, proceeder id) or None."""
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is None or s["dir"] != self.dir or s["mode"] != "YIELD" or not s.get("refuge"):
+                continue
+            r = refuge_by_id(self.sc, s["refuge"])
+            ahead = self.dir * (s["x"] - x)
+            if (r is None or not 0 < ahead < self.p.detect_range or self.dir * (s["x"] - r.x) <= 0
+                    or self.dir * (r.x - x) > r.span / 2 + 2 * self.r + 2 * self.sc.clearance):
+                continue
+            own = [q for q in self.map.refuges() if q.id != r.id and self.dir * (x - q.x) > 0
+                   and not self.refuge_taken(t, q, perc)]
+            if own:
+                return min(own, key=lambda q: abs(q.x - x)), s.get("with") or pid
+        return None
+
     def tick_cruise(self, t, pose, perc):
         x = pose[0]
         if self.goal_ref is None and self.dir * (x - self.goal_x) >= -self.p.goal_tol:
             self.mode, self.done_t = "DONE", t
             self.log(t, "goal_reached")
             return 0.0, 0.0
+        mr = self.make_room(t, x, perc) if self.comms else None
+        if mr is not None:
+            ref, peer = mr
+            self.log(t, "make_room", refuge=ref.id, peer=peer)
+            self.begin_yield(t, ref, peer, rule="make_room")
+            return self.brake()
         yp = self.yielding_peer(t, x) if self.comms else None
         if yp is not None and self.goal_ref is not None:
             yr = refuge_by_id(self.sc, yp[1].get("refuge"))

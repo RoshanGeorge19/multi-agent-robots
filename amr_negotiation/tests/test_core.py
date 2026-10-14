@@ -269,6 +269,28 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
     assert s.lane_clear(stem, Perception(), t=10.0)
 
 
+def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
+    from amr_negotiation.policies import decide_cost_bid, decide_group_bid
+
+    sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
+    mk = lambda i, x, d, g: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, 1.0, False,
+                                     0.26, 0.15, 1.8, 0.5, group=g)
+    a, b = mk("A", 1.0, 1, None), mk("B", 6.0, -1, None)
+    assert decide_group_bid([a, b], sc).yielder == decide_cost_bid([a, b], sc).yielder
+    a2 = mk("A", 1.0, 1, [mk("C", -0.2, 1, None)])
+    d = decide_group_bid([a2, b], sc)
+    assert d.yielder == "B" and d.detail["groups"]["A"] == ["C"]
+    assert Snapshot.from_dict(a2.to_dict()).group[0].id == "C"
+
+
+def test_convoy_follower_makes_room_for_yielding_leader():
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml"),
+                         parse_set(["bays.0.x=2.0", "bays.1.x=8.0", "agents.2.start_delay=4.0", "agents.2.urgency=3.0"]))
+    for pol in ("cost_bid", "group_bid"):
+        r = run_episode(sc, {"name": pol}, seed=0)
+        assert r["success"] and not r["collision"], pol
+
+
 def test_tjunction_goal_waits_in_bay_for_stem_exit():
     """Stem occupant leaving towards a robot whose destination is the stem: no deadlock."""
     from amr_negotiation import sweep as SW
