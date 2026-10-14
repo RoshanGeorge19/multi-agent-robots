@@ -91,6 +91,7 @@ class Scenario:
     bays: list[dict] = field(default_factory=lambda: [{"x": 4.0, "side": 1, "width": 0.8, "depth": 0.6}])
     room_refuges: bool = True
     blocked_bays: list[str] = field(default_factory=list)  # bays on every map but physically obstructed (pallet, closed off)
+    agent_params: dict = field(default_factory=dict)  # AgentParams defaults for every robot (e.g. explore); a policy's agent_params override them
     despawn_done: bool = False  # robots that reach their goal leave the world (convoys: a parked finisher would block the lane)
     robot: RobotSpec = field(default_factory=RobotSpec)
     agents: list[AgentConfig] = field(default_factory=list)

@@ -34,6 +34,8 @@ class AgentParams:
     neg_period: float = 0.3
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
+    share_on_detect: bool = False  # with share_map: send our map only once our own sensor has detected that robot
+    explore: bool = False  # start without bays (unless known_refuges is given) and add each bay once it is within lidar range
     commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
     state_guard: bool = True  # STATE messages expose a peer yielding into our bay / to us, and we proceed instead
     bay_check: bool = True  # lidar-occupied bays count as taken, and a yielder that senses one in its bay proceeds
@@ -53,12 +55,15 @@ class Agent:
     def __init__(self, cfg: AgentConfig, sc: Scenario, policy: dict, rng: np.random.Generator | None = None,
                  params: AgentParams | None = None):
         self.cfg, self.sc, self.policy = cfg, sc, dict(policy)
-        self.p = params or AgentParams(**policy.get("agent_params", {}))
+        self.p = params or AgentParams(**{**getattr(sc, "agent_params", {}), **policy.get("agent_params", {})})
         self.rng = rng or np.random.default_rng()
         self.id, self.dir, self.goal_x = cfg.id, cfg.direction, cfg.goal_x
         known = cfg.known_refuges
+        if known is None and self.p.explore:
+            known = []
         self.unknown = set() if known is None else {
             r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
+        self.detected: set[str] = set()  # peers our own sensor has seen (not just heard on the radio)
         self.obstructed: set[str] = set()  # bays found physically obstructed (on the map, but unusable)
         self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
         self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
@@ -206,8 +211,34 @@ class Agent:
                 "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
                 "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
                 "have_dec": n.get("their_dec") is not None,
-                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None,
+                "known": self.known_bays() if self.may_share(n["peer"]) else None,
                 "blocked": sorted(self.obstructed) or None}
+
+    def known_bays(self) -> list[str]:
+        return sorted(r.id for r in self.map.refuges() if r.kind == "bay")
+
+    def may_share(self, pid) -> bool:
+        return self.p.share_map and (not self.p.share_on_detect or pid in self.detected)
+
+    def sense(self, t, pose, perc: Perception, out: list):
+        """Explore mode: add bays that come within lidar range of the corridor lane. Mark peers our sensor has seen
+        (a sensed object at a peer's STATE position); with share_on_detect, send that peer our map once."""
+        x, y = pose[0], pose[1]
+        rng = self.sc.robot.lidar_range
+        if self.p.explore and self.unknown and abs(y) <= self.sc.half_width:
+            seen = [r.id for r in self.sc.refuges() if r.id in self.unknown and abs(r.x - x) <= rng]
+            if seen:
+                self.learn_refuges(t, seen, "sensed")
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if pid in self.detected or s is None or math.hypot(s["x"] - x, s["y"] - y) > rng:
+                continue
+            if any(math.hypot(px - s["x"], py - s["y"]) < 2 * self.r for px, py in perc.peers):
+                self.detected.add(pid)
+                self.log(t, "peer_detected", peer=pid)
+                if self.comms and self.p.share_map and self.p.share_on_detect:
+                    out.append({"type": "MAP", "sender": self.id, "to": pid, "t": t, "known": self.known_bays(),
+                                "blocked": sorted(self.obstructed) or None})
 
     def learn_refuges(self, t, ids, source):
         for rid in ids:
@@ -230,6 +261,10 @@ class Agent:
     def handle(self, t, pose, msg):
         if msg["type"] == "STATE":
             self.peers[msg["sender"]] = {**msg, "_rx": t}
+        elif msg["type"] == "MAP" and msg.get("to") == self.id:
+            self.learn_refuges(t, msg.get("known") or [], msg["sender"])
+            if msg.get("blocked"):
+                self.learn_obstructed(t, msg["blocked"], msg["sender"])
         elif msg["type"] == "BID" and msg["to"] == self.id:
             pid = msg["sender"]
             if msg.get("known"):
@@ -291,6 +326,7 @@ class Agent:
         out: list[dict] = []
         for m in inbox:
             self.handle(t, pose, m)
+        self.sense(t, pose, perception, out)
         x = pose[0]
         if self.entered_t is None and self.sc.in_corridor(x):
             self.entered_t = t
