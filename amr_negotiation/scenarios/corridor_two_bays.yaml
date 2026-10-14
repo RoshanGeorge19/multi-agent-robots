@@ -1,0 +1,10 @@
+name: corridor_two_bays
+length: 10.0
+width: 0.65
+bays:
+  - {x: 3.0, side: 1, width: 0.8, depth: 0.6}
+  - {x: 7.0, side: -1, width: 0.8, depth: 0.6}
+comms: {latency: 0.05, jitter: 0.02, loss: 0.0, rate: 5.0}
+agents:
+  - {id: A, start_x: -1.0, goal_x: 12.0}
+  - {id: B, start_x: 11.0, goal_x: -2.0, start_delay: 4.0}

@@ -1,0 +1,14 @@
+# How does the bay position change who should yield, and which policies get it right?
+scenario: scenarios/corridor_single_bay.yaml
+seeds: 10
+policies:
+  - {name: reactive}
+  - {name: fixed_priority}
+  - {name: rule_based, label: rules_default}
+  - {name: rule_based, rulebook: rulebooks/proximity_first.yaml, label: rules_proximity}
+  - {name: cost_bid}
+  - {name: oracle}
+grid:
+  bays.0.x: [1.0, 2.5, 4.0, 5.5, 7.0]
+random:
+  agents.1.start_delay: [0.0, 6.0]

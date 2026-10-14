@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amr_negotiation"
+version = "0.1.0"
+description = "Negotiation between autonomous mobile robots in constrained spaces (corridor + pull-in bay study)"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pyyaml", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+amrneg-run = "amr_negotiation.cli:run_main"
+amrneg-sweep = "amr_negotiation.sweep:main"
+amrneg-world = "amr_negotiation.gzworld:main"
+
+[tool.setuptools]
+packages = ["amr_negotiation"]
+
+[tool.ruff]
+line-length = 100

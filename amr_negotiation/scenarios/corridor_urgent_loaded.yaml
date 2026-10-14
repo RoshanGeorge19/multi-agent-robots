@@ -1,0 +1,9 @@
+# Same geometry as corridor_single_bay, but B is loaded and urgent (e.g. a delivery run).
+name: corridor_urgent_loaded
+length: 8.0
+width: 0.65
+bays:
+  - {x: 4.0, side: 1, width: 0.8, depth: 0.6}
+agents:
+  - {id: A, start_x: -1.0, goal_x: 10.0}
+  - {id: B, start_x: 9.0, goal_x: -2.0, start_delay: 2.0, urgency: 2.0, loaded: true}

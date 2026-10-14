@@ -1,0 +1,10 @@
+# Alternative convention: geometry before seniority (whoever is closest to a refuge yields).
+rules:
+  - rule: no_refuge
+  - rule: urgency
+    threshold: 0.5
+  - rule: closest_refuge
+    tie: 0.1
+  - rule: first_in_corridor
+    min_gap: 1.0
+  - rule: lower_id_priority
