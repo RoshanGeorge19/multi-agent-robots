@@ -34,6 +34,9 @@ class AgentParams:
     neg_period: float = 0.3
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
+    commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
+    state_guard: bool = True  # STATE messages expose a peer yielding into our bay / to us, and we proceed instead
+    bay_check: bool = True  # lidar-occupied bays count as taken, and a yielder that senses one in its bay proceeds
     state_timeout: float = 1.0
     stop_margin: float = 0.10
     lateral_margin: float = 0.03
@@ -56,6 +59,7 @@ class Agent:
         known = cfg.known_refuges
         self.unknown = set() if known is None else {
             r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
+        self.obstructed: set[str] = set()  # bays found physically obstructed (on the map, but unusable)
         self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
         self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
         self.v_max = cfg.v_max or sc.robot.v_max
@@ -98,9 +102,23 @@ class Agent:
     def snapshot(self, t, pose) -> Snapshot:
         x, _, th, v = pose
         fwd = v * math.cos(th - self.facing())
+        group = self.followers(t, x) if self.policy.get("name") == "group_bid" else None
         return Snapshot(self.id, t, x, self.dir, max(0.0, fwd), self.goal_x, self.entered_t,
                         self.cfg.urgency, self.cfg.loaded, self.v_max, self.v_rev,
-                        self.sc.robot.w_max, self.sc.robot.a_max)
+                        self.sc.robot.w_max, self.sc.robot.a_max, group=group or None)
+
+    def followers(self, t, x) -> list[Snapshot]:
+        """Same-direction robots behind us (from STATE) that will also meet the oncoming robot."""
+        out = []
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if (s is None or s["dir"] != self.dir or s["mode"] in ("DONE", "YIELD")
+                    or not 0 < self.dir * (x - s["x"]) < self.p.detect_range):
+                continue
+            out.append(Snapshot(pid, t, s["x"], s["dir"], max(0.0, s["v"]), s["goal_x"], s.get("entered_t"),
+                                s.get("urgency", 1.0), s.get("loaded", False), self.v_max, self.v_rev,
+                                self.sc.robot.w_max, self.sc.robot.a_max))
+        return sorted(out, key=lambda f: -self.dir * f.x)
 
     def fresh_peer(self, pid: str, t: float) -> dict | None:
         s = self.peers.get(pid)
@@ -179,7 +197,8 @@ class Agent:
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
                 "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
                 "with": (self.ylds or self.prc or {}).get("peer"),
-                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None}
+                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None,
+                "urgency": self.cfg.urgency, "loaded": self.cfg.loaded}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
@@ -187,14 +206,26 @@ class Agent:
                 "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
                 "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
                 "have_dec": n.get("their_dec") is not None,
-                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None}
+                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None,
+                "blocked": sorted(self.obstructed) or None}
 
     def learn_refuges(self, t, ids, source):
         for rid in ids:
             if rid in self.unknown:
                 self.unknown.discard(rid)
                 self.log(t, "refuge_learned", refuge=rid, source=source)
-        self.map = _WithoutRefuges(self.sc, self.unknown) if self.unknown else self.sc
+        self.rebuild_map()
+
+    def rebuild_map(self):
+        hide = self.unknown | self.obstructed
+        self.map = _WithoutRefuges(self.sc, hide) if hide else self.sc
+
+    def learn_obstructed(self, t, ids, source):
+        new = set(ids) - self.obstructed
+        if new:
+            self.obstructed |= new
+            self.log(t, "obstructed_learned", refuges=sorted(new), source=source)
+            self.rebuild_map()
 
     def handle(self, t, pose, msg):
         if msg["type"] == "STATE":
@@ -203,6 +234,8 @@ class Agent:
             pid = msg["sender"]
             if msg.get("known"):
                 self.learn_refuges(t, msg["known"], pid)
+            if msg.get("blocked"):
+                self.learn_obstructed(t, msg["blocked"], pid)
             if self.neg is None or self.neg["peer"] != pid:
                 if self.comms and (self.mode in ("CRUISE", "NEGOTIATE") or self.can_renegotiate(pid)):
                     self.start_neg(t, pose, pid, cid=msg["conflict"])
@@ -228,8 +261,21 @@ class Agent:
             s = self.fresh_peer(pid, t)
             if s is None or pid == exclude or t < self.no_neg_until.get(pid, -1):
                 continue
+            if self.policy["name"] == "reservation" and not (self.sc.in_corridor(x) and self.sc.in_corridor(s["x"])):
+                continue  # whoever is inside holds the corridor; negotiate only if both got in
             if (s["dir"] == -self.dir and s["mode"] in modes
                     and self.dir * (s["x"] - x) > 0 and abs(s["x"] - x) < self.p.detect_range):
+                return pid
+        return None
+
+    def corridor_holder(self, t, x):
+        """Reservation policy: an oncoming peer that is inside the corridor while this robot is still outside."""
+        entry = 0.0 if self.dir > 0 else self.sc.length
+        if self.dir * (entry - x) <= 0:  # already in the corridor or past it
+            return None
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and s["dir"] == -self.dir and s["mode"] != "DONE" and self.sc.in_corridor(s["x"]):
                 return pid
         return None
 
@@ -287,12 +333,36 @@ class Agent:
                 return pid, s
         return None
 
+    def make_room(self, t, x, perc):
+        """A same-direction robot just ahead must reverse into a refuge we are blocking (e.g. a convoy leader
+        that yielded): back into a free refuge of our own. Returns (refuge, proceeder id) or None."""
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is None or s["dir"] != self.dir or s["mode"] != "YIELD" or not s.get("refuge"):
+                continue
+            r = refuge_by_id(self.sc, s["refuge"])
+            ahead = self.dir * (s["x"] - x)
+            if (r is None or not 0 < ahead < self.p.detect_range or self.dir * (s["x"] - r.x) <= 0
+                    or self.dir * (r.x - x) > r.span / 2 + 2 * self.r + 2 * self.sc.clearance):
+                continue
+            own = [q for q in self.map.refuges() if q.id != r.id and self.dir * (x - q.x) > 0
+                   and not self.refuge_taken(t, q, perc)]
+            if own:
+                return min(own, key=lambda q: abs(q.x - x)), s.get("with") or pid
+        return None
+
     def tick_cruise(self, t, pose, perc):
         x = pose[0]
         if self.goal_ref is None and self.dir * (x - self.goal_x) >= -self.p.goal_tol:
             self.mode, self.done_t = "DONE", t
             self.log(t, "goal_reached")
             return 0.0, 0.0
+        mr = self.make_room(t, x, perc) if self.comms else None
+        if mr is not None:
+            ref, peer = mr
+            self.log(t, "make_room", refuge=ref.id, peer=peer)
+            self.begin_yield(t, ref, peer, rule="make_room")
+            return self.brake()
         yp = self.yielding_peer(t, x) if self.comms else None
         if yp is not None and self.goal_ref is not None:
             yr = refuge_by_id(self.sc, yp[1].get("refuge"))
@@ -306,6 +376,14 @@ class Agent:
                 return self.brake()
         if self.fallback_reactive and self.reactive_until is not None and t > self.reactive_until:
             self.fallback_reactive, self.reactive_until = False, None
+        if self.policy["name"] == "reservation" and self.comms and not self.fallback_reactive:
+            holder = self.corridor_holder(t, x)
+            if holder is not None:
+                room = next((r for r in self.map.refuges() if r.kind == "room" and (r.x < 0) == (self.dir > 0)), None)
+                if room is None or self.refuge_taken(t, room, perc):
+                    return self.brake()
+                self.begin_yield(t, room, holder, rule="reservation")
+                return self.brake()
         if self.comms and not self.fallback_reactive:
             pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
             if pid is not None:
@@ -432,7 +510,7 @@ class Agent:
         d = n["dec"]
         td = n.get("their_dec")
         # commit: act once the peer's decision has arrived (or the commit window expires)
-        if td is None and t - n["decided"] < self.p.neg_timeout:
+        if self.p.commit and td is None and t - n["decided"] < self.p.neg_timeout:
             return self.brake()
         yielder, ref = d.yielder, refuge_of(d, self.sc)
         if td is not None and (td["yielder"], td["refuge"]) != (d.yielder, d.refuge):
@@ -542,17 +620,41 @@ class Agent:
             and abs(py) < self.sc.half_width + 0.1
             # a stationary robot waiting to enter this refuge only blocks us inside the base window
             and not (abs(px - ref.x) >= base and any(abs(px - wx) < 0.3 for wx in waiting))
-            for px, py in perc.peers
+            for px, py in self.known_peer_positions(t, perc, ref)
         )
+
+    def known_peer_positions(self, t, perc, ref: Refuge | None = None) -> list:
+        """Sensed peers plus peers whose fresh STATE says they are driving towards `ref`
+        (a real lidar inside a deep refuge is occluded by its walls)."""
+        pts = list(perc.peers)
+        if t is not None and ref is not None:
+            pts += [(s["x"], s["y"]) for pid in list(self.peers)
+                    if (s := self.fresh_peer(pid, t)) is not None and s["mode"] != "DONE"
+                    and abs(s["v"]) > 0.05 and s["dir"] * (ref.x - s["x"]) > 0]
+        return pts
 
     def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
         for pid in list(self.peers):
             if pid == ignore:
                 continue
             s = self.fresh_peer(pid, t)
-            if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
+            if self.p.state_guard and s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
                 return True
-        return self.bay_seen_occupied(ref, perc)
+        return self.p.bay_check and self.bay_seen_occupied(ref, perc)
+
+    def robot_in_refuge(self, t, ref: Refuge) -> bool:
+        """A known peer (from STATE) is physically in this refuge; otherwise an occupied bay is an obstruction."""
+        for pid in list(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and abs(s["x"] - ref.x) < ref.span / 2 + 0.3 and abs(s["y"]) > self.sc.half_width - 0.1:
+                return True
+        return False
+
+    def fallback_refuge(self, t, x, bad: Refuge, perc):
+        """Nearest usable refuge behind us (the way we can reverse without meeting the proceeder)."""
+        cands = [r for r in self.map.refuges() if r.id != bad.id and r.id not in self.obstructed
+                 and self.dir * (x - r.x) > 0 and not self.refuge_taken(t, r, perc)]
+        return min(cands, key=lambda r: abs(r.x - x)) if cands else None
 
     def bay_seen_occupied(self, ref: Refuge, perc) -> bool:
         hw = self.sc.half_width
@@ -573,7 +675,7 @@ class Agent:
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
-        if ph in ("to_refuge", "turn_in") and not c.get("goal"):
+        if self.p.state_guard and ph in ("to_refuge", "turn_in") and not c.get("goal"):
             # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
             for pid in list(self.peers):
                 s = self.fresh_peer(pid, t)
@@ -586,7 +688,7 @@ class Agent:
                     self.ylds = None
                     self.begin_proceed(t, ref, pid)
                     return self.brake()
-        if ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
+        if self.p.state_guard and ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
             # lost messages left both robots yielding to each other in different refuges: the lower id keeps yielding
             s = self.fresh_peer(c["peer"], t)
             if (s is not None and s["mode"] == "YIELD" and s.get("with") == self.id and s.get("refuge")
@@ -599,7 +701,17 @@ class Agent:
                 return self.brake()
         if ph == "to_refuge":
             v, w, done = self.lane_cmd(pose, ref.x)
-            if done and self.bay_seen_occupied(ref, perc):
+            if done and self.bay_seen_occupied(ref, perc) and not self.robot_in_refuge(t, ref):
+                # the bay is obstructed by something that is not a robot (our map is wrong): keep yielding elsewhere
+                alt = self.fallback_refuge(t, pose[0], ref, perc)
+                if alt is not None:
+                    self.log(t, "refuge_blocked", refuge=ref.id, alt=alt.id)
+                    self.obstructed.add(ref.id)
+                    self.rebuild_map()
+                    self.n_yields -= 1
+                    self.begin_yield(t, alt, c["peer"], rule="refuge_blocked")
+                    return self.brake()
+            if done and self.p.bay_check and self.bay_seen_occupied(ref, perc):
                 # sensors show another robot already in the bay (decisions diverged): pass it instead
                 self.log(t, "refuge_occupied", refuge=ref.id)
                 self.n_yields -= 1
