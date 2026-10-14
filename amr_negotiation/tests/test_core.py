@@ -245,6 +245,17 @@ def test_tjunction_goal_refuge():
     )
 
 
+def test_learned_policy_uses_table_and_falls_back():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    r0 = run_episode(sc, {"name": "learned", "table": {}}, seed=0)
+    key = r0["decisions"][0]["features"]
+    assert r0["success"] and r0["decisions"][0]["rule"] == "learned:fallback"
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [100.0, 1], "b": [1.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"B"}
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [1.0, 1], "b": [100.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"A"}
+
+
 def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
     sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
     sc.blocked_bays = ["bay1"]
