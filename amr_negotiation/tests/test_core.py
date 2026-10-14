@@ -228,3 +228,18 @@ def test_asymmetric_map_share():
     assert own["success"] and shared["success"] and not shared["collision"]
     assert not any(e["event"] == "decision_mismatch" for e in shared["events"])
     assert shared["total_delay"] < own["total_delay"]
+
+
+def test_tjunction_goal_refuge():
+    """A robot whose destination is the stem waits for the stem occupant to leave, then turns in."""
+    from amr_negotiation import sim2d, sweep
+
+    sc = sweep.load_scenario(
+        str(Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction_goal.yaml")
+    )
+    r = sim2d.run_episode(sc, {"name": "cost_bid"}, seed=0, record=True)
+    assert r["success"] and not r["collision"]
+    assert any(
+        e["agent"] == "A" and e["event"] == "goal_reached" and e.get("refuge") == "bay1"
+        for e in r["events"]
+    )

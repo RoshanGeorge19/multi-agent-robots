@@ -1,0 +1,12 @@
+name: corridor_tjunction_goal
+# T-junction (stem = deep side branch bay1): A turns into the stem, B passes through, S leaves the stem.
+length: 8.0
+width: 0.65
+bays:
+  - {x: 2.5, side: 1, width: 0.8, depth: 0.6}
+  - {x: 5.5, side: -1, width: 0.8, depth: 2.0}
+despawn_done: true
+agents:
+  - {id: A, start_x: -1.0, goal_x: 5.5, goal_refuge: bay1}
+  - {id: B, start_x: 9.0, goal_x: -2.0, start_delay: 2.0}
+  - {id: S, start_x: 5.5, goal_x: 10.0, start_refuge: bay1, start_delay: 4.0}

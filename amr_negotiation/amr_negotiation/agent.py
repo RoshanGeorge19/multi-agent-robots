@@ -57,6 +57,7 @@ class Agent:
         self.unknown = set() if known is None else {
             r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
         self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
+        self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
         self.v_max = cfg.v_max or sc.robot.v_max
         self.v_rev = cfg.v_rev_max or sc.robot.v_rev_max
         self.r = sc.robot.radius
@@ -79,6 +80,7 @@ class Agent:
         self.fallback_reactive = policy["name"] == "reactive"
         self.blocked: dict | None = None
         self.no_neg_until: dict[str, float] = {}
+        self.reactive_until: float | None = None
         self.last_state_t = -1e9
         self.events: list[dict] = []
         self.decisions: list[dict] = []
@@ -176,7 +178,8 @@ class Agent:
         return {"type": "STATE", "sender": self.id, "t": t, "x": x, "y": y, "theta": th, "v": v,
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
                 "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
-                "with": (self.ylds or self.prc or {}).get("peer")}
+                "with": (self.ylds or self.prc or {}).get("peer"),
+                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
@@ -286,23 +289,50 @@ class Agent:
 
     def tick_cruise(self, t, pose, perc):
         x = pose[0]
-        if self.dir * (x - self.goal_x) >= -self.p.goal_tol:
+        if self.goal_ref is None and self.dir * (x - self.goal_x) >= -self.p.goal_tol:
             self.mode, self.done_t = "DONE", t
             self.log(t, "goal_reached")
             return 0.0, 0.0
         yp = self.yielding_peer(t, x) if self.comms else None
-        if yp is not None:
+        if yp is not None and not (self.goal_ref is not None and yp[1].get("refuge") == self.goal_ref.id):
             ref = refuge_by_id(self.sc, yp[1]["refuge"])
             if ref is not None and self.dir * (pass_x(ref, self.dir, self.sc) - x) > 0:
                 self.log(t, "peer_yielding", peer=yp[0], refuge=ref.id)
                 self.begin_proceed(t, ref, yp[0])
                 return self.brake()
+        if self.fallback_reactive and self.reactive_until is not None and t > self.reactive_until:
+            self.fallback_reactive, self.reactive_until = False, None
         if self.comms and not self.fallback_reactive:
             pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
             if pid is not None:
                 self.start_neg(t, pose, pid)
                 return self.brake()
-        v, w, _ = self.lane_cmd(pose, self.goal_x)
+        target = self.goal_x
+        g = self.goal_ref
+        if g is not None:
+            if self.refuge_taken(t, g, perc):
+                # destination branch still occupied: wait outside the window its occupant needs to leave
+                lim = g.span / 2 + 2 * self.r + 2 * self.sc.clearance + 2.0 + 0.3
+                target = g.x - self.dir * lim
+                if self.dir * (target - x) < -0.1:
+                    # inside the occupant's exit window: back off to the wait point if the lane behind is clear
+                    behind = any(
+                        0 < self.dir * (x - px) < 1.0 and abs(py) < self.sc.half_width + 0.1
+                        for px, py in perc.peers
+                    )
+                    if behind:
+                        return self.brake()
+                    v, w, _ = self.point_cmd(pose, target, 0.0, reverse=True)
+                    return v, w
+                if self.dir * (target - x) <= 0:
+                    return self.brake()
+            elif self.dir * (x - g.x) >= -self.p.goal_tol:
+                self.begin_yield(t, g, None, rule="goal")
+                self.n_yields -= 1
+                self.ylds["goal"] = True
+                self.phase = "turn_in"
+                return self.brake()
+        v, w, _ = self.lane_cmd(pose, target)
         vs = self.safe_v(pose, perc.points, v)
         if self.fallback_reactive and self.reactive_blocked(t, pose, perc, v, vs):
             return self.brake()
@@ -379,8 +409,9 @@ class Agent:
         elif td is None:
             self.log(t, "commit_timeout", peer=n["peer"])
         if ref is None:
+            # no usable refuge right now (e.g. all taken): act reactively, renegotiate once one may be free
             self.mode, self.fallback_reactive = "CRUISE", True
-            self.no_neg_until[n["peer"]] = t + 10.0
+            self.no_neg_until[n["peer"]] = self.reactive_until = t + 10.0
         elif yielder == self.id:
             self.begin_yield(t, ref, peer=n["peer"], rule=d.rule)
         else:
@@ -420,7 +451,7 @@ class Agent:
                 self.prc = None
                 self.start_neg(t, pose, pid)
                 return self.brake()
-            if self.dir * (x - c["pass"]) > 0:
+            if self.dir * (x - c["pass"]) > 0 or self.dir * (x - self.goal_x) >= -self.p.goal_tol:
                 self.mode, self.phase, self.prc, self.neg = "CRUISE", "", None, None
                 self.log(t, "passed_refuge")
             v, w, _ = self.lane_cmd(pose, self.goal_x)
@@ -464,9 +495,19 @@ class Agent:
             return self.lane_clear(ref, perc)
         return False
 
-    def lane_clear(self, ref: Refuge, perc, extra: float = 0.0) -> bool:
-        lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance + extra
-        return not any(abs(px - ref.x) < lim and abs(py) < self.sc.half_width + 0.1 for px, py in perc.peers)
+    def lane_clear(self, ref: Refuge, perc, extra: float = 0.0, t: float | None = None) -> bool:
+        base = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance
+        waiting = [] if t is None else [
+            s["x"] for pid in list(self.peers)
+            if (s := self.fresh_peer(pid, t)) is not None and s.get("goal_ref") == ref.id and abs(s["v"]) < 0.05
+        ]
+        return not any(
+            abs(px - ref.x) < base + extra
+            and abs(py) < self.sc.half_width + 0.1
+            # a stationary robot waiting to enter this refuge only blocks us inside the base window
+            and not (abs(px - ref.x) >= base and any(abs(px - wx) < 0.3 for wx in waiting))
+            for px, py in perc.peers
+        )
 
     def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
         for pid in list(self.peers):
@@ -496,7 +537,7 @@ class Agent:
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
-        if ph in ("to_refuge", "turn_in"):
+        if ph in ("to_refuge", "turn_in") and not c.get("goal"):
             # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
             for pid in list(self.peers):
                 s = self.fresh_peer(pid, t)
@@ -540,7 +581,10 @@ class Agent:
             return v, w
         if ph == "park_in":
             v, w, done = self.point_cmd(pose, ref.x, ref.park_y, reverse=False)
-            if done:
+            if done and c.get("goal"):
+                self.mode, self.done_t, self.phase = "DONE", t, ""
+                self.log(t, "goal_reached", refuge=ref.id)
+            elif done:
                 self.phase, c["t_parked"] = "parked", t
                 self.log(t, "parked", refuge=ref.id)
             return v, w
@@ -550,8 +594,7 @@ class Agent:
                 self.log(t, "leaving_refuge", refuge=ref.id)
             return 0.0, 0.0
         if ph == "back_out":
-            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0) or (
-                    not c.get("forward_out") and self.passer_pending(t, ref)):
+            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0, t=t) or self.passer_pending(t, ref):
                 if abs(pose[1]) > self.sc.half_width + self.r:
                     self.phase = "parked"  # still inside the refuge: let the peer pass first
                     return 0.0, 0.0
