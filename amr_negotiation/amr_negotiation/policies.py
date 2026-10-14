@@ -15,7 +15,7 @@ import yaml
 from .geometry import Scenario
 from .planner import Snapshot, best_plan, feasible, plan_times, refuge_by_id
 
-NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "forced")
+NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "clarke", "reservation", "forced")
 ALL_POLICIES = ("reactive",) + NEGOTIATING_POLICIES
 
 
@@ -237,18 +237,37 @@ def decide_group_bid(snaps, sc, objective: str = "total_delay") -> Decision:
     return _finish(Y, _other(a, b, Y), sc, "group_bid", detail)
 
 
+# ---------------------------------------------------------------- Clarke-pivot mechanism
+
+def decide_clarke(snaps, sc, report_scale: dict | None = None) -> Decision:
+    """Clarke-pivot choice of yielder. `report_scale` multiplies a robot's reported costs (misreport studies)."""
+    from .mechanism import clarke, types
+
+    a, b = _pair(snaps)
+    true = types(a, b, sc)
+    rep = {o: {i: c * (report_scale or {}).get(i, 1.0) for i, c in v.items()} for o, v in true.items()}
+    y, pay = clarke(rep)
+    detail = {"types": true, "reports": rep, "payments": pay}
+    if y is None:
+        return Decision(None, None, None, "clarke:infeasible", detail)
+    Y = a if y == a.id else b
+    return _finish(Y, _other(a, b, Y), sc, "clarke", detail)
+
+
 # ---------------------------------------------------------------- dispatcher
 
 def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
     name = policy["name"]
     if name == "fixed_priority":
         return decide_rulebook(snaps, sc, FIXED_PRIORITY_RULEBOOK)
-    if name == "rule_based":
+    if name in ("rule_based", "reservation"):  # reservation falls back to the rulebook once both are inside
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
         return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))
     if name == "learned":
         return decide_learned(snaps, sc, policy.get("table"))
+    if name == "clarke":
+        return decide_clarke(snaps, sc, policy.get("report_scale"))
     if name == "group_bid":
         return decide_group_bid(snaps, sc, policy.get("objective", "total_delay"))
     if name == "forced":

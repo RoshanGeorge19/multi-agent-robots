@@ -13,12 +13,17 @@ def run(a):
     ov.update({'none': {}, 'B_urgent': {'agents.2.urgency': 3.0}, 'B_loaded': {'agents.2.loaded': 'true'}}[case])
     sc = SW.apply_overrides(SW.load_scenario(str(ROOT / 'scenarios/corridor_convoy.yaml')), SW._overrides(ov))
     p = {'name': pol} if pol != 'rules_default' else {'name': 'rule_based', 'rulebook': str(ROOT / 'rulebooks/default.yaml')}
-    r = sim2d.run_episode(sc, p, seed=seed)
     u = {ag.id: ag.urgency for ag in sc.agents}
-    wd = sum(u[i] * v['delay'] for i, v in r['agents'].items()) if r['success'] else None
+    wdel = lambda r: sum(u[i] * v['delay'] for i, v in r['agents'].items()) if r['success'] else None
+    if pol == 'side_oracle':  # hindsight: the whole A+C side yields (forced A) or B yields to both (forced B)
+        runs = [sim2d.run_episode(sc, {'name': 'forced', 'yielder': y}, seed=seed) for y in ('A', 'B')]
+        r = min(runs, key=lambda q: wdel(q) if q['success'] else float('inf'))
+    else:
+        r = sim2d.run_episode(sc, p, seed=seed)
+    wd = wdel(r)
     return (case, pol), r['success'], r['collision'], r.get('total_delay'), wd
 if __name__ == '__main__':
-    jobs = [(p, c, x0, x1, sd, s, l) for c in ('none', 'B_urgent', 'B_loaded') for p in ('fixed_priority', 'rules_default', 'cost_bid', 'group_bid')
+    jobs = [(p, c, x0, x1, sd, s, l) for c in ('none', 'B_urgent', 'B_loaded') for p in ('fixed_priority', 'rules_default', 'cost_bid', 'group_bid', 'side_oracle')
             for x0 in (2.0, 4.0) for x1 in (6.0, 8.0) for sd in (0.0, 4.0, 8.0) for s in range(3) for l in (0.0, 0.5)]
     with mp.Pool(4) as pool: res = pool.map(run, jobs)
     agg = collections.defaultdict(list)
