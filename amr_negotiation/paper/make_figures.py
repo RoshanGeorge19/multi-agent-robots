@@ -45,12 +45,12 @@ def fig_results():
     a1.axhline(3.1, ls="--", c="tab:green", label="closest-refuge rule")
     a1.axhline(6.4, ls=":", c="tab:red", label="fixed priority / default rulebook")
     a1.set_xlabel(r"bid noise $\sigma$ (log-normal)", fontsize=8)
-    a1.set_ylabel("regret vs. oracle [s]", fontsize=8)
+    a1.set_ylabel("excess delay vs. oracle [s]", fontsize=8)
     a1.legend(fontsize=6.5)
     a1.set_title("(a) symmetric robots, single bay", fontsize=8, loc="left")
     pols = ["fixed\npriority", "default\nrulebook", "cost_bid", "unweighted\noracle"]
     a2.bar(pols, [27.0, 3.6, 0.8, 7.1], color=["tab:red", "tab:green", "tab:blue", "0.6"])
-    a2.set_ylabel("weighted-delay regret [s]", fontsize=8)
+    a2.set_ylabel("weighted excess delay [s]", fontsize=8)
     a2.set_title("(b) asymmetric urgency / payload / speed", fontsize=8, loc="left")
     for ax in (a1, a2):
         ax.tick_params(labelsize=7)
