@@ -131,6 +131,15 @@ STUDIES = {
                          'grid': {'agent_params.detect_range': [6.0, 3.0, 1.5], 'robot.v_max': [0.26, 0.5],
                                'comms.loss': [0.0, 0.5, 0.9], 'comms.latency': [0.05, 0.5, 2.0]},
                          'random': {'agents.1.start_delay': [0.0, 8.0]}},
+ 'S8c_protocol_ablation': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,
+                              'policies': [{'name': n, 'label': f'{n}|{lab}', 'agent_params': ap}
+                                           for n in ('fixed_priority', 'cost_bid')
+                                           for lab, ap in (('both', {}), ('commit_only', {'bay_check': False}),
+                                                           ('bay_check_only', {'commit': False}),
+                                                           ('neither', {'commit': False, 'bay_check': False}))],
+                              'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],
+                                    'comms.loss': [0.9, 0.97, 0.99], 'comms.latency': [2.0, 4.0, 8.0]},
+                              'random': {'agents.1.start_delay': [0.0, 8.0]}},
  'S8b_comms_extreme': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,
                            'policies': [{'name': 'fixed_priority'}, DEF, PROX, {'name': 'cost_bid'}],
                            'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],

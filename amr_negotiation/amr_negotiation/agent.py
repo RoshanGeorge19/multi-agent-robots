@@ -34,6 +34,8 @@ class AgentParams:
     neg_period: float = 0.3
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
+    commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
+    bay_check: bool = True  # a yielder that senses a robot already in its bay proceeds instead
     state_timeout: float = 1.0
     stop_margin: float = 0.10
     lateral_margin: float = 0.03
@@ -507,7 +509,7 @@ class Agent:
         d = n["dec"]
         td = n.get("their_dec")
         # commit: act once the peer's decision has arrived (or the commit window expires)
-        if td is None and t - n["decided"] < self.p.neg_timeout:
+        if self.p.commit and td is None and t - n["decided"] < self.p.neg_timeout:
             return self.brake()
         yielder, ref = d.yielder, refuge_of(d, self.sc)
         if td is not None and (td["yielder"], td["refuge"]) != (d.yielder, d.refuge):
@@ -708,7 +710,7 @@ class Agent:
                     self.n_yields -= 1
                     self.begin_yield(t, alt, c["peer"], rule="refuge_blocked")
                     return self.brake()
-            if done and self.bay_seen_occupied(ref, perc):
+            if done and self.p.bay_check and self.bay_seen_occupied(ref, perc):
                 # sensors show another robot already in the bay (decisions diverged): pass it instead
                 self.log(t, "refuge_occupied", refuge=ref.id)
                 self.n_yields -= 1
