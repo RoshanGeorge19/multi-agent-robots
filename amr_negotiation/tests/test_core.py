@@ -327,3 +327,16 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
                 spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
             r = run_episode(sc, spec, seed=0)
             assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
+
+
+def test_bids_weight_each_delay_by_its_owners_urgency():
+    from amr_negotiation.planner import best_plan
+    from amr_negotiation.policies import group_yield_cost, yield_bid
+
+    sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
+    mk = lambda i, x, d, u, g=None: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, u, False,
+                                             0.26, 0.15, 1.8, 0.5, group=g)
+    a, b = mk("A", 1.0, 1, 1.0), mk("B", 6.0, -1, 3.0)
+    p = best_plan(a, b, sc)
+    assert yield_bid(a, b, sc) == pytest.approx(1.0 * p["yielder_delay"] + 3.0 * p["proceeder_delay"])
+    assert group_yield_cost(a, b, sc) == pytest.approx(yield_bid(a, b, sc))
