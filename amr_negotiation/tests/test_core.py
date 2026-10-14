@@ -340,3 +340,32 @@ def test_bids_weight_each_delay_by_its_owners_urgency():
     p = best_plan(a, b, sc)
     assert yield_bid(a, b, sc) == pytest.approx(1.0 * p["yielder_delay"] + 3.0 * p["proceeder_delay"])
     assert group_yield_cost(a, b, sc) == pytest.approx(yield_bid(a, b, sc))
+
+
+def test_clarke_pivot_is_second_price_and_truthful():
+    import itertools
+    import random
+
+    from amr_negotiation.mechanism import clarke
+
+    # A yields: costs 10 + 1 = 11. B yields: 2 + 4 = 6, so B yields; A pays 4 - min(1, 4) = 3.
+    y, pay = clarke({"A": {"A": 10.0, "B": 1.0}, "B": {"A": 2.0, "B": 4.0}})
+    assert y == "B" and pay == {"A": pytest.approx(3.0), "B": pytest.approx(0.0)}
+    rng = random.Random(0)
+    for _ in range(300):
+        true = {o: {i: rng.uniform(0, 30) for i in "AB"} for o in "AB"}
+        y, pay = clarke(true)
+        for i, k in itertools.product("AB", (0.1, 0.5, 0.9, 1.1, 2.0, 10.0)):
+            rep = {o: {j: c * (k if j == i else 1.0) for j, c in v.items()} for o, v in true.items()}
+            y2, pay2 = clarke(rep)
+            assert true[y2][i] + pay2[i] >= true[y][i] + pay[i] - 1e-9
+        assert min(pay.values()) >= 0.0
+
+
+def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml")
+    for seed in range(3):
+        rc = run_episode(sc, {"name": "clarke"}, seed=seed)
+        rb = run_episode(sc, {"name": "cost_bid"}, seed=seed)
+        assert rc["success"] and rc.get("yielder") == rb.get("yielder")
+        assert all(v >= 0 for v in rc["decisions"][0]["payments"].values())
