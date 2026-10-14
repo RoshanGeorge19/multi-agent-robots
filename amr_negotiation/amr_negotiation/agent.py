@@ -56,6 +56,7 @@ class Agent:
         known = cfg.known_refuges
         self.unknown = set() if known is None else {
             r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
+        self.obstructed: set[str] = set()  # bays found physically obstructed (on the map, but unusable)
         self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
         self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
         self.v_max = cfg.v_max or sc.robot.v_max
@@ -202,14 +203,26 @@ class Agent:
                 "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
                 "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
                 "have_dec": n.get("their_dec") is not None,
-                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None}
+                "known": sorted(r.id for r in self.map.refuges() if r.kind == "bay") if self.p.share_map else None,
+                "blocked": sorted(self.obstructed) or None}
 
     def learn_refuges(self, t, ids, source):
         for rid in ids:
             if rid in self.unknown:
                 self.unknown.discard(rid)
                 self.log(t, "refuge_learned", refuge=rid, source=source)
-        self.map = _WithoutRefuges(self.sc, self.unknown) if self.unknown else self.sc
+        self.rebuild_map()
+
+    def rebuild_map(self):
+        hide = self.unknown | self.obstructed
+        self.map = _WithoutRefuges(self.sc, hide) if hide else self.sc
+
+    def learn_obstructed(self, t, ids, source):
+        new = set(ids) - self.obstructed
+        if new:
+            self.obstructed |= new
+            self.log(t, "obstructed_learned", refuges=sorted(new), source=source)
+            self.rebuild_map()
 
     def handle(self, t, pose, msg):
         if msg["type"] == "STATE":
@@ -218,6 +231,8 @@ class Agent:
             pid = msg["sender"]
             if msg.get("known"):
                 self.learn_refuges(t, msg["known"], pid)
+            if msg.get("blocked"):
+                self.learn_obstructed(t, msg["blocked"], pid)
             if self.neg is None or self.neg["peer"] != pid:
                 if self.comms and (self.mode in ("CRUISE", "NEGOTIATE") or self.can_renegotiate(pid)):
                     self.start_neg(t, pose, pid, cid=msg["conflict"])
@@ -603,6 +618,20 @@ class Agent:
                 return True
         return self.bay_seen_occupied(ref, perc)
 
+    def robot_in_refuge(self, t, ref: Refuge) -> bool:
+        """A known peer (from STATE) is physically in this refuge; otherwise an occupied bay is an obstruction."""
+        for pid in list(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and abs(s["x"] - ref.x) < ref.span / 2 + 0.3 and abs(s["y"]) > self.sc.half_width - 0.1:
+                return True
+        return False
+
+    def fallback_refuge(self, t, x, bad: Refuge, perc):
+        """Nearest usable refuge behind us (the way we can reverse without meeting the proceeder)."""
+        cands = [r for r in self.map.refuges() if r.id != bad.id and r.id not in self.obstructed
+                 and self.dir * (x - r.x) > 0 and not self.refuge_taken(t, r, perc)]
+        return min(cands, key=lambda r: abs(r.x - x)) if cands else None
+
     def bay_seen_occupied(self, ref: Refuge, perc) -> bool:
         hw = self.sc.half_width
         return any(abs(px - ref.x) < ref.span / 2 + 0.1 and abs(py) > hw - 0.05 and py * ref.side > 0
@@ -648,6 +677,16 @@ class Agent:
                 return self.brake()
         if ph == "to_refuge":
             v, w, done = self.lane_cmd(pose, ref.x)
+            if done and self.bay_seen_occupied(ref, perc) and not self.robot_in_refuge(t, ref):
+                # the bay is obstructed by something that is not a robot (our map is wrong): keep yielding elsewhere
+                alt = self.fallback_refuge(t, pose[0], ref, perc)
+                if alt is not None:
+                    self.log(t, "refuge_blocked", refuge=ref.id, alt=alt.id)
+                    self.obstructed.add(ref.id)
+                    self.rebuild_map()
+                    self.n_yields -= 1
+                    self.begin_yield(t, alt, c["peer"], rule="refuge_blocked")
+                    return self.brake()
             if done and self.bay_seen_occupied(ref, perc):
                 # sensors show another robot already in the bay (decisions diverged): pass it instead
                 self.log(t, "refuge_occupied", refuge=ref.id)

@@ -269,6 +269,15 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
     assert s.lane_clear(stem, Perception(), t=10.0)
 
 
+def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc.blocked_bays = ["bay1"]
+    for pol in ("fixed_priority", "cost_bid"):
+        r = run_episode(sc, {"name": pol}, seed=0, record=True)
+        assert r["success"] and not r["collision"], pol
+        assert any(e["event"] == "refuge_blocked" for e in r["events"]), pol
+
+
 def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
     from amr_negotiation.policies import decide_cost_bid, decide_group_bid
 
