@@ -1,0 +1,26 @@
+name: gz_tj_s4
+length: 8.0
+width: 0.65
+bays:
+- x: 2.5
+  side: 1
+  width: 0.8
+  depth: 0.6
+- x: 5.5
+  side: -1
+  width: 0.8
+  depth: 2.0
+despawn_done: true
+agents:
+- id: A
+  start_x: -1.0
+  goal_x: 10.0
+- id: B
+  start_x: 9.0
+  goal_x: -2.0
+  start_delay: 1.004
+- id: S
+  start_x: 5.5
+  goal_x: -1.5
+  start_refuge: bay1
+  start_delay: 2.781

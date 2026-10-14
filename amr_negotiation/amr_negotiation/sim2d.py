@@ -77,6 +77,7 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
     dt, t = sc.dt, 0.0
     min_dist = float("inf")
     collision_t = None
+    obstacles = [(r.x, r.park_y) for r in sc.refuges() if r.id in set(sc.blocked_bays)]
     wall_hits = 0
     reverse = {i: 0.0 for i in ids}
     trace = []
@@ -93,6 +94,10 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
                 if math.hypot(o[0] - s[0], o[1] - s[1]) <= rs.lidar_range:
                     pts.append(_circle_points(o[0], o[1], rs.radius))
                     peers.append((float(o[0]), float(o[1])))
+            for ox, oy in obstacles:
+                if math.hypot(ox - s[0], oy - s[1]) <= rs.lidar_range:
+                    pts.append(_circle_points(ox, oy, rs.radius))
+                    peers.append((ox, oy))
             perc = Perception(np.concatenate(pts) if pts else np.zeros((0, 2)), peers)
             pose = (float(s[0]), float(s[1]), float(s[2]), float(s[3]))
             v, w, out = agents[i].step(t, pose, perc, bus.deliver(t, i))
@@ -121,6 +126,10 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
                 min_dist = min(min_dist, d)
                 if collision_t is None and d < 0.6 and footprints_overlap(p, q, rs.footprint):
                     collision_t = t
+        for i in ids:
+            if collision_t is None and not (sc.despawn_done and agents[i].mode == "DONE") and any(
+                    math.hypot(st[i][0] - ox, st[i][1] - oy) < 2 * rs.radius for ox, oy in obstacles):
+                collision_t = t
         if record and step % record_every == 0:
             trace.append({"t": round(t, 3), **{i: [round(float(v), 4) for v in st[i][:4]] + [agents[i].mode, agents[i].phase]
                                                 for i in ids}})
