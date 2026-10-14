@@ -166,3 +166,17 @@ def test_convoy_three_robots_resolves():
     for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
         r = sim2d.run_episode(sc, pol, seed=0)
         assert r["success"], pol
+
+
+def test_tjunction_stem_robot_joins():
+    """A robot waiting in a T-junction stem joins the corridor past two head-on robots under every negotiating policy."""
+    from amr_negotiation import sim2d
+    from amr_negotiation.geometry import load_scenario
+
+    sc = load_scenario(
+        Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction.yaml"
+    )
+    assert sc.start_pose(sc.agents[2])[1] < -sc.half_width
+    for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
+        r = sim2d.run_episode(sc, pol, seed=0)
+        assert r["success"], pol

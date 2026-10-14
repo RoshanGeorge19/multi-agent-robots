@@ -71,7 +71,7 @@ def run_episode(sc: Scenario, policy: dict, seed: int = 0, record: bool = False,
     sc = copy.deepcopy(sc)
     rs = sc.robot
     agents = {a.id: Agent(a, sc, policy, rng=np.random.default_rng(rng.integers(1 << 31))) for a in sc.agents}
-    st = {a.id: np.array([a.start_x, 0.0, 0.0 if a.direction > 0 else math.pi, 0.0, 0.0]) for a in sc.agents}
+    st = {a.id: np.array([*sc.start_pose(a), 0.0, 0.0]) for a in sc.agents}
     bus = Bus(sc.comms, np.random.default_rng(rng.integers(1 << 31)))
     ids = list(agents)
     dt, t = sc.dt, 0.0
