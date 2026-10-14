@@ -132,12 +132,13 @@ STUDIES = {
                                'comms.loss': [0.0, 0.5, 0.9], 'comms.latency': [0.05, 0.5, 2.0]},
                          'random': {'agents.1.start_delay': [0.0, 8.0]}},
  'S8c_protocol_ablation': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,
-                              'policies': [{'name': n, 'label': f'{n}|{lab}', 'agent_params': ap}
-                                           for n in ('fixed_priority', 'cost_bid')
-                                           for lab, ap in (('both', {}), ('commit_only', {'bay_check': False}),
-                                                           ('bay_check_only', {'commit': False}),
-                                                           ('neither', {'commit': False, 'bay_check': False}))],
-                              'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],
+                              'policies': [
+        {'name': n, 'label': f'{n}|commit={int(c)},state={int(g)},bay={int(b)}',
+         'agent_params': {'commit': c, 'state_guard': g, 'bay_check': b}}
+        for n in ('fixed_priority', 'cost_bid')
+        for c in (True, False) for g in (True, False) for b in (True, False)
+    ],
+    'grid': {'agent_params.detect_range': [1.5, 6.0], 'robot.v_max': [0.5],
                                     'comms.loss': [0.9, 0.97, 0.99], 'comms.latency': [2.0, 4.0, 8.0]},
                               'random': {'agents.1.start_delay': [0.0, 8.0]}},
  'S8b_comms_extreme': {'scenario': 'scenarios/corridor_single_bay.yaml', 'seeds': 20,

@@ -35,7 +35,8 @@ class AgentParams:
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
     commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
-    bay_check: bool = True  # a yielder that senses a robot already in its bay proceeds instead
+    state_guard: bool = True  # STATE messages expose a peer yielding into our bay / to us, and we proceed instead
+    bay_check: bool = True  # lidar-occupied bays count as taken, and a yielder that senses one in its bay proceeds
     state_timeout: float = 1.0
     stop_margin: float = 0.10
     lateral_margin: float = 0.03
@@ -637,9 +638,9 @@ class Agent:
             if pid == ignore:
                 continue
             s = self.fresh_peer(pid, t)
-            if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
+            if self.p.state_guard and s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
                 return True
-        return self.bay_seen_occupied(ref, perc)
+        return self.p.bay_check and self.bay_seen_occupied(ref, perc)
 
     def robot_in_refuge(self, t, ref: Refuge) -> bool:
         """A known peer (from STATE) is physically in this refuge; otherwise an occupied bay is an obstruction."""
@@ -674,7 +675,7 @@ class Agent:
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
-        if ph in ("to_refuge", "turn_in") and not c.get("goal"):
+        if self.p.state_guard and ph in ("to_refuge", "turn_in") and not c.get("goal"):
             # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
             for pid in list(self.peers):
                 s = self.fresh_peer(pid, t)
@@ -687,7 +688,7 @@ class Agent:
                     self.ylds = None
                     self.begin_proceed(t, ref, pid)
                     return self.brake()
-        if ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
+        if self.p.state_guard and ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
             # lost messages left both robots yielding to each other in different refuges: the lower id keeps yielding
             s = self.fresh_peer(c["peer"], t)
             if (s is not None and s["mode"] == "YIELD" and s.get("with") == self.id and s.get("refuge")
