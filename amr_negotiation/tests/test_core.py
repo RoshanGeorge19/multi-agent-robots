@@ -252,3 +252,18 @@ def test_scenario_goals_reachable_without_touching_room_walls():
         m = sc.robot.radius + 0.10 + 0.05
         for a in sc.agents:
             assert -sc.room_length + m <= a.goal_x <= sc.length + sc.room_length - m, (f.name, a.id, a.goal_x)
+
+
+def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
+    """A robot deep in the stem cannot see the corridor; a fresh STATE of an approaching peer still blocks its exit."""
+    from amr_negotiation.agent import Agent, Perception
+    from amr_negotiation.planner import refuge_by_id
+
+    sc = load_scenario(ROOT / "scenarios" / "corridor_tjunction.yaml")
+    s = Agent(next(a for a in sc.agents if a.id == "S"), sc, {"name": "fixed_priority"})
+    stem = refuge_by_id(sc, "bay1")
+    s.peers["B"] = {"x": stem.x + 0.8, "y": 0.0, "v": -0.2, "dir": -1, "mode": "PROCEED", "_rx": 10.0}
+    assert s.lane_clear(stem, Perception(), t=None)
+    assert not s.lane_clear(stem, Perception(), t=10.0)
+    s.peers["B"].update(x=stem.x - 0.8)  # already past the stem
+    assert s.lane_clear(stem, Perception(), t=10.0)
