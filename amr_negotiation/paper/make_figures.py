@@ -1,16 +1,22 @@
-"""Figures for the draft paper. Values in fig_results are copied from studies/REPORT*.md."""
+"""Figures for the paper. fig_results is computed from studies/results_raw/*.csv.gz."""
+import sys
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from amr_negotiation import load_scenario
 from amr_negotiation.viz import draw_map
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(__file__).resolve().parent / "fig"
+RAW = ROOT / "studies" / "results_raw"
+sys.path.insert(0, str(ROOT / "studies"))
+from analyse_helpers import ci, paired
+
 COL = {"A": "tab:blue", "B": "tab:orange", "C": "tab:green", "S": "tab:red"}
 
 
@@ -40,16 +46,22 @@ def fig_scenarios():
 
 def fig_results():
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.0, 2.4))
-    sig = [0, 0.1, 0.25, 0.5, 1.0]
-    a1.plot(sig, [0, 0.2, 1.5, 3.3, 4.5], "o-", label="cost_bid, noisy bids")
-    a1.axhline(3.1, ls="--", c="tab:green", label="closest-refuge rule")
-    a1.axhline(6.4, ls=":", c="tab:red", label="fixed priority / default rulebook")
+    p7 = paired(pd.read_csv(RAW / "S7_noisy_bids.csv.gz"))
+    cb = p7[p7.label == "cost_bid"].groupby("bid_sigma").regret
+    a1.errorbar(cb.mean().index, cb.mean().values, yerr=cb.apply(ci).values, fmt="o-", capsize=2, label="cost_bid, noisy bids")
+    prox = p7[p7.label == "rules_proximity"].regret
+    a1.axhline(prox.mean(), ls="--", c="tab:green", label="closest-refuge rule")
+    p1 = paired(pd.read_csv(RAW / "S1_baseline.csv.gz"))
+    a1.axhline(p1[p1.label == "fixed_priority"].regret.mean(), ls=":", c="tab:red", label="fixed priority / default rulebook")
     a1.set_xlabel(r"bid noise $\sigma$ (log-normal)", fontsize=8)
-    a1.set_ylabel("excess delay vs. oracle [s]", fontsize=8)
+    a1.set_ylabel("excess delay [s]", fontsize=8)
     a1.legend(fontsize=6.5)
     a1.set_title("(a) symmetric robots, single bay", fontsize=8, loc="left")
-    pols = ["fixed\npriority", "default\nrulebook", "cost_bid", "unweighted\noracle"]
-    a2.bar(pols, [27.0, 3.6, 0.8, 7.1], color=["tab:red", "tab:green", "tab:blue", "0.6"])
+    p2 = paired(pd.read_csv(RAW / "S2_asymmetry.csv.gz"), ref="oracle_w", metric="wdelay")
+    labs = [("fixed_priority", "fixed\npriority", "tab:red"), ("rules_default", "default\nrulebook", "tab:green"),
+            ("cost_bid", "cost_bid", "tab:blue"), ("oracle", "unweighted\nbest forced", "0.6")]
+    g = [p2[p2.label == lab].regret for lab, _, _ in labs]
+    a2.bar([n for _, n, _ in labs], [x.mean() for x in g], yerr=[ci(x) for x in g], capsize=2, color=[c for _, _, c in labs])
     a2.set_ylabel("weighted excess delay [s]", fontsize=8)
     a2.set_title("(b) asymmetric urgency / payload / speed", fontsize=8, loc="left")
     for ax in (a1, a2):
@@ -57,6 +69,7 @@ def fig_results():
         ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
     fig.savefig(OUT / "results.pdf")
+    print("S7 cost_bid", cb.mean().round(2).to_dict(), "prox", round(prox.mean(), 2), "S2", [round(x.mean(), 2) for x in g])
 
 
 if __name__ == "__main__":

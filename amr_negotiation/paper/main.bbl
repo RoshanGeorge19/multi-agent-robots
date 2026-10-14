@@ -64,6 +64,11 @@ K.~Okumura, M.~Machida, X.~Défago, and Y.~Tamura, ``{Priority inheritance with
   \url{https://doi.org/10.1016/j.artint.2022.103752}
 \BIBentrySTDinterwordspacing
 
+\bibitem{phillips2011sipp}
+M.~Phillips and M.~Likhachev, ``{SIPP}: Safe interval path planning for dynamic
+  environments,'' in \emph{Proc. IEEE International Conference on Robotics and
+  Automation (ICRA)}, 2011, pp. 5628--5635.
+
 \bibitem{hiertraffic2023}
 \BIBentryALTinterwordspacing
 F.~Pratissoli, R.~Brugioni, N.~Battilani, and L.~Sabattini, ``{Hierarchical
@@ -79,6 +84,13 @@ F.~Pratissoli, R.~Brugioni, N.~Battilani, and L.~Sabattini, ``{Hierarchical
   for Mobile Robot Fleets (software repository)},''
   \url{https://github.com/open-rmf/rmf_traffic}, 2026. [Online]. Available:
   \url{https://github.com/open-rmf/rmf_traffic}
+\BIBentrySTDinterwordspacing
+
+\bibitem{openrmf}
+\BIBentryALTinterwordspacing
+{Open Robotics}, ``{Open-RMF: Open Robotics Middleware Framework},''
+  \url{https://www.open-rmf.org/}, 2026. [Online]. Available:
+  \url{https://www.open-rmf.org/}
 \BIBentrySTDinterwordspacing
 
 \bibitem{kato1992coordinating}
@@ -202,12 +214,42 @@ W.~Vickrey, ``{COUNTERSPECULATION, AUCTIONS, AND COMPETITIVE SEALED TENDERS},''
   Available: \url{https://doi.org/10.1111/j.1540-6261.1961.tb02789.x}
 \BIBentrySTDinterwordspacing
 
+\bibitem{clarke1971multipart}
+E.~H. Clarke, ``Multipart pricing of public goods,'' \emph{Public Choice},
+  vol.~11, no.~1, pp. 17--33, 1971.
+
+\bibitem{groves1973incentives}
+T.~Groves, ``Incentives in teams,'' \emph{Econometrica}, vol.~41, no.~4, pp.
+  617--631, 1973.
+
 \bibitem{nisan2001algorithmic}
 \BIBentryALTinterwordspacing
 N.~Nisan and A.~Ronen, ``{Algorithmic Mechanism Design},'' \emph{Games and
   Economic Behavior}, vol.~35, no. 1-2, pp. 166--196, 2001. [Online].
   Available: \url{https://doi.org/10.1006/game.1999.0790}
 \BIBentrySTDinterwordspacing
+
+\bibitem{green1977characterization}
+J.~Green and J.-J. Laffont, ``Characterization of satisfactory mechanisms for
+  the revelation of preferences for public goods,'' \emph{Econometrica},
+  vol.~45, no.~2, pp. 427--438, 1977.
+
+\bibitem{myerson1983efficient}
+R.~B. Myerson and M.~A. Satterthwaite, ``Efficient mechanisms for bilateral
+  trading,'' \emph{Journal of Economic Theory}, vol.~29, no.~2, pp. 265--281,
+  1983.
+
+\bibitem{censi2019karma}
+A.~Censi, S.~Bolognani, J.~G. Zilly, S.~S. Mousavi, and E.~Frazzoli, ``Today
+  me, tomorrow thee: Efficient resource allocation in competitive settings
+  using karma games,'' in \emph{Proc. IEEE Intelligent Transportation Systems
+  Conference (ITSC)}, 2019, pp. 686--693.
+
+\bibitem{elokda2024karma}
+E.~Elokda, S.~Bolognani, A.~Censi, F.~D{\"o}rfler, and E.~Frazzoli, ``A
+  self-contained karma economy for the dynamic allocation of common
+  resources,'' \emph{Dynamic Games and Applications}, vol.~14, no.~3, pp.
+  578--610, 2024.
 
 \bibitem{bottleneckiv2023}
 \BIBentryALTinterwordspacing
