@@ -249,7 +249,7 @@ def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
     from amr_negotiation.policies import decide_cost_bid, decide_group_bid
 
     sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
-    mk = lambda i, x, d, g: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, 1.0, False,  # noqa: E731
+    mk = lambda i, x, d, g: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, 1.0, False,
                                      0.26, 0.15, 1.8, 0.5, group=g)
     a, b = mk("A", 1.0, 1, None), mk("B", 6.0, -1, None)
     assert decide_group_bid([a, b], sc).yielder == decide_cost_bid([a, b], sc).yielder
@@ -265,3 +265,21 @@ def test_convoy_follower_makes_room_for_yielding_leader():
     for pol in ("cost_bid", "group_bid"):
         r = run_episode(sc, {"name": pol}, seed=0)
         assert r["success"] and not r["collision"], pol
+
+
+def test_tjunction_goal_waits_in_bay_for_stem_exit():
+    """Stem occupant leaving towards a robot whose destination is the stem: no deadlock."""
+    from amr_negotiation import sweep as SW
+
+    for goal_x, sd_b in ((-1.5, 0.0), (10.0, 8.0)):
+        sc = SW.apply_overrides(
+            load_scenario(ROOT / "scenarios" / "corridor_tjunction_goal.yaml"),
+            SW._overrides({"agents.0.start_delay": 0.0, "agents.1.start_delay": sd_b,
+                           "agents.2.start_delay": 0.0, "agents.2.goal_x": goal_x, "comms.loss": 0.0}),
+        )
+        for pol in ("fixed_priority", "rule_based", "cost_bid"):
+            spec = {"name": pol}
+            if pol == "rule_based":
+                spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
+            r = run_episode(sc, spec, seed=0)
+            assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
