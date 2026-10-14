@@ -30,13 +30,16 @@ class Snapshot:
     v_rev_max: float
     w_max: float
     a_max: float
+    group: list[Snapshot] | None = None  # same-direction followers (group_bid only)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @staticmethod
     def from_dict(d: dict) -> Snapshot:
-        return Snapshot(**d)
+        d = dict(d)
+        g = d.pop("group", None)
+        return Snapshot(**d, group=[Snapshot.from_dict(x) for x in g] if g else None)
 
 
 def stop_x(s: Snapshot) -> float:

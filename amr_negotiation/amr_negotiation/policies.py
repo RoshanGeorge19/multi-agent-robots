@@ -12,9 +12,9 @@ from pathlib import Path
 import yaml
 
 from .geometry import Scenario
-from .planner import Snapshot, best_plan, feasible, refuge_by_id
+from .planner import Snapshot, best_plan, feasible, plan_times, refuge_by_id
 
-NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "forced")
+NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "forced")
 ALL_POLICIES = ("reactive",) + NEGOTIATING_POLICIES
 
 
@@ -161,6 +161,37 @@ def decide_cost_bid(snaps, sc, objective: str = "total_delay") -> Decision:
     return _finish(Y, _other(a, b, Y), sc, "cost_bid", detail)
 
 
+def group_yield_cost(Y: Snapshot, P: Snapshot, sc: Scenario, objective: str = "total_delay") -> float:
+    """Urgency-weighted cost of Y's whole group (Y and its followers) making way for P's group.
+
+    Each member of Y's group needs its own bay (rooms can be shared), and every yielder also waits for
+    P's followers to pass after P. With no followers on either side this equals `yield_bid`."""
+    used: set[str] = set()
+    total = 0.0
+    for y in [Y, *(Y.group or [])]:
+        plans = [plan_times(r, y, P, sc) for r in sc.refuges()
+                 if r.id not in used and feasible(r, y, P, sc)]
+        if not plans:
+            return float("inf")
+        plan = min(plans, key=lambda q: (q[objective], q["refuge_dist"]))
+        if refuge_by_id(sc, plan["refuge"]).kind == "bay":
+            used.add(plan["refuge"])
+        total += y.urgency * plan[objective]
+    wait = max((abs(f.x - P.x) / f.v_max for f in P.group or []), default=0.0)
+    return total + wait * sum(y.urgency for y in [Y, *(Y.group or [])])
+
+
+def decide_group_bid(snaps, sc, objective: str = "total_delay") -> Decision:
+    a, b = _pair(snaps)
+    ba, bb = group_yield_cost(a, b, sc, objective), group_yield_cost(b, a, sc, objective)
+    detail = {"bids": {a.id: ba, b.id: bb},
+              "groups": {a.id: [g.id for g in a.group or []], b.id: [g.id for g in b.group or []]}}
+    if ba == float("inf") and bb == float("inf"):
+        return Decision(None, None, None, "group_bid:infeasible", detail)
+    Y = a if ba < bb else b  # tie: b (higher id) yields
+    return _finish(Y, _other(a, b, Y), sc, "group_bid", detail)
+
+
 # ---------------------------------------------------------------- dispatcher
 
 def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
@@ -171,6 +202,8 @@ def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
         return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))
+    if name == "group_bid":
+        return decide_group_bid(snaps, sc, policy.get("objective", "total_delay"))
     if name == "forced":
         a, b = _pair(snaps)
         Y = a if a.id == policy["yielder"] else b
