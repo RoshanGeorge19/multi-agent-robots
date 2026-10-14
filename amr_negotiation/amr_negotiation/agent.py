@@ -34,6 +34,9 @@ class AgentParams:
     neg_period: float = 0.3
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
+    commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
+    state_guard: bool = True  # STATE messages expose a peer yielding into our bay / to us, and we proceed instead
+    bay_check: bool = True  # lidar-occupied bays count as taken, and a yielder that senses one in its bay proceeds
     state_timeout: float = 1.0
     stop_margin: float = 0.10
     lateral_margin: float = 0.03
@@ -258,8 +261,21 @@ class Agent:
             s = self.fresh_peer(pid, t)
             if s is None or pid == exclude or t < self.no_neg_until.get(pid, -1):
                 continue
+            if self.policy["name"] == "reservation" and not (self.sc.in_corridor(x) and self.sc.in_corridor(s["x"])):
+                continue  # whoever is inside holds the corridor; negotiate only if both got in
             if (s["dir"] == -self.dir and s["mode"] in modes
                     and self.dir * (s["x"] - x) > 0 and abs(s["x"] - x) < self.p.detect_range):
+                return pid
+        return None
+
+    def corridor_holder(self, t, x):
+        """Reservation policy: an oncoming peer that is inside the corridor while this robot is still outside."""
+        entry = 0.0 if self.dir > 0 else self.sc.length
+        if self.dir * (entry - x) <= 0:  # already in the corridor or past it
+            return None
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and s["dir"] == -self.dir and s["mode"] != "DONE" and self.sc.in_corridor(s["x"]):
                 return pid
         return None
 
@@ -360,6 +376,14 @@ class Agent:
                 return self.brake()
         if self.fallback_reactive and self.reactive_until is not None and t > self.reactive_until:
             self.fallback_reactive, self.reactive_until = False, None
+        if self.policy["name"] == "reservation" and self.comms and not self.fallback_reactive:
+            holder = self.corridor_holder(t, x)
+            if holder is not None:
+                room = next((r for r in self.map.refuges() if r.kind == "room" and (r.x < 0) == (self.dir > 0)), None)
+                if room is None or self.refuge_taken(t, room, perc):
+                    return self.brake()
+                self.begin_yield(t, room, holder, rule="reservation")
+                return self.brake()
         if self.comms and not self.fallback_reactive:
             pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
             if pid is not None:
@@ -486,7 +510,7 @@ class Agent:
         d = n["dec"]
         td = n.get("their_dec")
         # commit: act once the peer's decision has arrived (or the commit window expires)
-        if td is None and t - n["decided"] < self.p.neg_timeout:
+        if self.p.commit and td is None and t - n["decided"] < self.p.neg_timeout:
             return self.brake()
         yielder, ref = d.yielder, refuge_of(d, self.sc)
         if td is not None and (td["yielder"], td["refuge"]) != (d.yielder, d.refuge):
@@ -614,9 +638,9 @@ class Agent:
             if pid == ignore:
                 continue
             s = self.fresh_peer(pid, t)
-            if s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
+            if self.p.state_guard and s is not None and s["mode"] == "YIELD" and s.get("refuge") == ref.id:
                 return True
-        return self.bay_seen_occupied(ref, perc)
+        return self.p.bay_check and self.bay_seen_occupied(ref, perc)
 
     def robot_in_refuge(self, t, ref: Refuge) -> bool:
         """A known peer (from STATE) is physically in this refuge; otherwise an occupied bay is an obstruction."""
@@ -651,7 +675,7 @@ class Agent:
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
-        if ph in ("to_refuge", "turn_in") and not c.get("goal"):
+        if self.p.state_guard and ph in ("to_refuge", "turn_in") and not c.get("goal"):
             # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
             for pid in list(self.peers):
                 s = self.fresh_peer(pid, t)
@@ -664,7 +688,7 @@ class Agent:
                     self.ylds = None
                     self.begin_proceed(t, ref, pid)
                     return self.brake()
-        if ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
+        if self.p.state_guard and ph == "to_refuge" and c["peer"] is not None and self.id > c["peer"]:
             # lost messages left both robots yielding to each other in different refuges: the lower id keeps yielding
             s = self.fresh_peer(c["peer"], t)
             if (s is not None and s["mode"] == "YIELD" and s.get("with") == self.id and s.get("refuge")
@@ -687,7 +711,7 @@ class Agent:
                     self.n_yields -= 1
                     self.begin_yield(t, alt, c["peer"], rule="refuge_blocked")
                     return self.brake()
-            if done and self.bay_seen_occupied(ref, perc):
+            if done and self.p.bay_check and self.bay_seen_occupied(ref, perc):
                 # sensors show another robot already in the bay (decisions diverged): pass it instead
                 self.log(t, "refuge_occupied", refuge=ref.id)
                 self.n_yields -= 1

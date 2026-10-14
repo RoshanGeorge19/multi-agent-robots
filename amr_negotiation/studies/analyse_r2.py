@@ -6,6 +6,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 from analyse_helpers import ci, fmt, paired, rate
+from analyse_payments import s9_markdown
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -62,22 +63,8 @@ if p8b.exists():
     md.append(t.to_markdown())
 
 # S9 payments
-s9 = pd.read_csv(D / 'S9_payments.csv')
-H('S9 — Payments for honest bids (B reports k × its true bid; bay x ∈ {2,4,6}; 60 seeds)')
-md.append('Utilities are in seconds of delay. With VCG (Clarke pivot) payments, the robot that proceeds pays the yielder\'s *reported* bid to the bank; the yielder pays nothing. Truthful bidding is then a dominant strategy (in expectation over the cost model).\n')
-s9 = s9[s9.success.astype(bool)].copy()
-s9['B_proceeds'] = s9.yielder == 'A'
-s9['u_B_none'] = -s9.delay_B
-s9['u_B_vcg'] = -s9.delay_B - np.where(s9.B_proceeds, s9.bid_A, 0.0)
-s9['u_A_vcg'] = -s9.delay_A - np.where(~s9.B_proceeds, s9.bid_B, 0.0)
-s9['revenue'] = np.where(s9.B_proceeds, s9.bid_A, s9.bid_B)
-base = s9[s9.report_k == 1.0].set_index(['x', 'seed'])
-rows = ['| k | B yields | total delay [s] | B utility, no transfers [s] | Δ vs truthful | B utility, VCG [s] | Δ vs truthful | bank revenue [s] |', '|---|---|---|---|---|---|---|---|']
-for k, g in s9.groupby('report_k'):
-    gi = g.set_index(['x', 'seed']); j = gi.join(base[['u_B_none', 'u_B_vcg']], rsuffix='_t', how='inner')
-    dn, dv = j.u_B_none - j.u_B_none_t, j.u_B_vcg - j.u_B_vcg_t
-    rows.append(f"| {k} | {100*(g.yielder == 'B').mean():.0f}% | {fmt(g.total_delay.mean(), ci(g.total_delay))} | {g.u_B_none.mean():.1f} | {fmt(dn.mean(), ci(dn))} | {g.u_B_vcg.mean():.1f} | {fmt(dv.mean(), ci(dv))} | {g.revenue.mean():.1f} |")
-md.append('\n'.join(rows))
+H('S9 — Clarke-pivot payments under misreports (bay x ∈ {2,4,6}; u_B ∈ {1,3}; 60 seeds)')
+md.extend(s9_markdown(pd.read_csv(D / 'S9_payments.csv')))
 
 # S10 repeated encounters
 s10 = pd.read_csv(D / 'S10_repeated.csv')

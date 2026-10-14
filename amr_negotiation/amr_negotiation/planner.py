@@ -88,6 +88,7 @@ def plan_times(refuge: Refuge, Y: Snapshot, P: Snapshot, sc: Scenario) -> dict:
         "yielder_delay": y_arr - y_free,
         "proceeder_delay": p_arr - p_free,
         "total_delay": (y_arr - y_free) + (p_arr - p_free),
+        "weighted_delay": Y.urgency * (y_arr - y_free) + P.urgency * (p_arr - p_free),
         "makespan": max(y_arr, p_arr),
         "reverse_dist": abs(dY) if reverse else 0.0,
         "refuge_dist": abs(dY),

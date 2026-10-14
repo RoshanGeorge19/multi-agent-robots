@@ -6,12 +6,12 @@
 | 200 | single_bay | learned | 55.0 ± 5.6 | +14.7 | 0 | 83% |
 | 800 | two_bays | fixed_priority | 42.5 ± 4.0 | +9.2 | 0 |  |
 | 800 | two_bays | rules_default | 35.7 ± 3.3 | +2.5 | 0 |  |
-| 800 | two_bays | cost_bid | 33.6 ± 2.9 | +0.4 | 0 |  |
+| 800 | two_bays | cost_bid | 33.3 ± 2.8 | +0.0 | 0 |  |
 | 800 | two_bays | learned | 35.8 ± 3.3 | +2.6 | 0 | 1% |
 | 800 | two_bays | oracle_w | 33.3 ± 2.8 | +0.0 | 0 |  |
 | 800 | single_bay | fixed_priority | 52.6 ± 5.3 | +12.3 | 0 |  |
 | 800 | single_bay | rules_default | 46.6 ± 4.8 | +6.3 | 0 |  |
-| 800 | single_bay | cost_bid | 41.1 ± 3.9 | +0.7 | 0 |  |
+| 800 | single_bay | cost_bid | 40.3 ± 3.8 | +0.0 | 0 |  |
 | 800 | single_bay | learned | 53.5 ± 6.0 | +13.1 | 0 | 15% |
 | 800 | single_bay | oracle_w | 40.3 ± 3.8 | +0.0 | 0 |  |
 

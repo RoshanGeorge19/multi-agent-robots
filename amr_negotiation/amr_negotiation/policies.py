@@ -15,7 +15,7 @@ import yaml
 from .geometry import Scenario
 from .planner import Snapshot, best_plan, feasible, plan_times, refuge_by_id
 
-NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "forced")
+NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "clarke", "reservation", "forced")
 ALL_POLICIES = ("reactive",) + NEGOTIATING_POLICIES
 
 
@@ -147,9 +147,13 @@ def decide_rulebook(snaps, sc, rulebook: list[dict]) -> Decision:
 # ---------------------------------------------------------------- cost-based bidding
 
 def yield_bid(Y: Snapshot, P: Snapshot, sc: Scenario, objective: str = "total_delay") -> float:
-    """Urgency-weighted cost of Y yielding to P; infinite if Y has no feasible refuge."""
+    """Predicted social cost of Y yielding to P; infinite if Y has no feasible refuge.
+
+    For total delay each robot's delay is weighted by its own urgency: u_Y d_Y + u_P d_P."""
     plan = best_plan(Y, P, sc, objective)
-    return float("inf") if plan is None else Y.urgency * plan[objective]
+    if plan is None:
+        return float("inf")
+    return plan["weighted_delay"] if objective == "total_delay" else plan[objective]
 
 
 def decide_cost_bid(snaps, sc, objective: str = "total_delay") -> Decision:
@@ -195,12 +199,13 @@ def decide_learned(snaps, sc, table: dict | str | None) -> Decision:
 
 
 def group_yield_cost(Y: Snapshot, P: Snapshot, sc: Scenario, objective: str = "total_delay") -> float:
-    """Urgency-weighted cost of Y's whole group (Y and its followers) making way for P's group.
+    """Predicted urgency-weighted delay when Y's whole group (Y and its followers) makes way for P's group.
 
-    Each member of Y's group needs its own bay (rooms can be shared), and every yielder also waits for
-    P's followers to pass after P. With no followers on either side this equals `yield_bid`."""
+    Each member of Y's group needs its own bay (rooms can be shared) and also waits for P's followers to
+    pass. P is held until the slowest member has parked; that delay is counted once and applies to P and
+    each of its followers. With no followers on either side this equals `yield_bid`."""
     used: set[str] = set()
-    total = 0.0
+    yield_cost, p_delay = 0.0, 0.0
     for y in [Y, *(Y.group or [])]:
         plans = [plan_times(r, y, P, sc) for r in sc.refuges()
                  if r.id not in used and feasible(r, y, P, sc)]
@@ -209,9 +214,16 @@ def group_yield_cost(Y: Snapshot, P: Snapshot, sc: Scenario, objective: str = "t
         plan = min(plans, key=lambda q: (q[objective], q["refuge_dist"]))
         if refuge_by_id(sc, plan["refuge"]).kind == "bay":
             used.add(plan["refuge"])
-        total += y.urgency * plan[objective]
+        if objective != "total_delay":
+            yield_cost = max(yield_cost, plan[objective])
+            continue
+        yield_cost += y.urgency * plan["yielder_delay"]
+        p_delay = max(p_delay, plan["proceeder_delay"])
+    if objective != "total_delay":
+        return yield_cost
     wait = max((abs(f.x - P.x) / f.v_max for f in P.group or []), default=0.0)
-    return total + wait * sum(y.urgency for y in [Y, *(Y.group or [])])
+    yielders, proceeders = [Y, *(Y.group or [])], [P, *(P.group or [])]
+    return yield_cost + wait * sum(y.urgency for y in yielders) + p_delay * sum(p.urgency for p in proceeders)
 
 
 def decide_group_bid(snaps, sc, objective: str = "total_delay") -> Decision:
@@ -225,18 +237,37 @@ def decide_group_bid(snaps, sc, objective: str = "total_delay") -> Decision:
     return _finish(Y, _other(a, b, Y), sc, "group_bid", detail)
 
 
+# ---------------------------------------------------------------- Clarke-pivot mechanism
+
+def decide_clarke(snaps, sc, report_scale: dict | None = None) -> Decision:
+    """Clarke-pivot choice of yielder. `report_scale` multiplies a robot's reported costs (misreport studies)."""
+    from .mechanism import clarke, types
+
+    a, b = _pair(snaps)
+    true = types(a, b, sc)
+    rep = {o: {i: c * (report_scale or {}).get(i, 1.0) for i, c in v.items()} for o, v in true.items()}
+    y, pay = clarke(rep)
+    detail = {"types": true, "reports": rep, "payments": pay}
+    if y is None:
+        return Decision(None, None, None, "clarke:infeasible", detail)
+    Y = a if y == a.id else b
+    return _finish(Y, _other(a, b, Y), sc, "clarke", detail)
+
+
 # ---------------------------------------------------------------- dispatcher
 
 def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
     name = policy["name"]
     if name == "fixed_priority":
         return decide_rulebook(snaps, sc, FIXED_PRIORITY_RULEBOOK)
-    if name == "rule_based":
+    if name in ("rule_based", "reservation"):  # reservation falls back to the rulebook once both are inside
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
         return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))
     if name == "learned":
         return decide_learned(snaps, sc, policy.get("table"))
+    if name == "clarke":
+        return decide_clarke(snaps, sc, policy.get("report_scale"))
     if name == "group_bid":
         return decide_group_bid(snaps, sc, policy.get("objective", "total_delay"))
     if name == "forced":
