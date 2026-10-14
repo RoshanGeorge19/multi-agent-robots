@@ -277,7 +277,7 @@ class Agent:
             self.log(t, "goal_reached")
             return 0.0, 0.0
         yp = self.yielding_peer(t, x) if self.comms else None
-        if yp is not None:
+        if yp is not None and not (self.goal_ref is not None and yp[1].get("refuge") == self.goal_ref.id):
             ref = refuge_by_id(self.sc, yp[1]["refuge"])
             if ref is not None and self.dir * (pass_x(ref, self.dir, self.sc) - x) > 0:
                 self.log(t, "peer_yielding", peer=yp[0], refuge=ref.id)
@@ -295,6 +295,16 @@ class Agent:
                 # destination branch still occupied: wait outside the window its occupant needs to leave
                 lim = g.span / 2 + 2 * self.r + 2 * self.sc.clearance + 2.0 + 0.3
                 target = g.x - self.dir * lim
+                if self.dir * (target - x) < -0.1:
+                    # inside the occupant's exit window: back off to the wait point if the lane behind is clear
+                    behind = any(
+                        0 < self.dir * (x - px) < 1.0 and abs(py) < self.sc.half_width + 0.1
+                        for px, py in perc.peers
+                    )
+                    if behind:
+                        return self.brake()
+                    v, w, _ = self.point_cmd(pose, target, 0.0, reverse=True)
+                    return v, w
                 if self.dir * (target - x) <= 0:
                     return self.brake()
             elif self.dir * (x - g.x) >= -self.p.goal_tol:
@@ -419,7 +429,7 @@ class Agent:
                 self.prc = None
                 self.start_neg(t, pose, pid)
                 return self.brake()
-            if self.dir * (x - c["pass"]) > 0:
+            if self.dir * (x - c["pass"]) > 0 or self.dir * (x - self.goal_x) >= -self.p.goal_tol:
                 self.mode, self.phase, self.prc, self.neg = "CRUISE", "", None, None
                 self.log(t, "passed_refuge")
             v, w, _ = self.lane_cmd(pose, self.goal_x)
@@ -552,8 +562,7 @@ class Agent:
                 self.log(t, "leaving_refuge", refuge=ref.id)
             return 0.0, 0.0
         if ph == "back_out":
-            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0) or (
-                    not c.get("forward_out") and self.passer_pending(t, ref)):
+            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0) or self.passer_pending(t, ref):
                 if abs(pose[1]) > self.sc.half_width + self.r:
                     self.phase = "parked"  # still inside the refuge: let the peer pass first
                     return 0.0, 0.0
