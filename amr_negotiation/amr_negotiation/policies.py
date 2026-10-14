@@ -260,7 +260,7 @@ def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
     name = policy["name"]
     if name == "fixed_priority":
         return decide_rulebook(snaps, sc, FIXED_PRIORITY_RULEBOOK)
-    if name == "rule_based":
+    if name in ("rule_based", "reservation"):  # reservation falls back to the rulebook once both are inside
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
         return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))

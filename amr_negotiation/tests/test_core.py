@@ -369,3 +369,11 @@ def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
         rb = run_episode(sc, {"name": "cost_bid"}, seed=seed)
         assert rc["success"] and rc.get("yielder") == rb.get("yielder")
         assert all(v >= 0 for v in rc["decisions"][0]["payments"].values())
+
+
+def test_reservation_waits_outside_while_corridor_is_held():
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml"),
+                         parse_set(["agents.1.start_delay=5.0"]))
+    r = run_episode(sc, {"name": "reservation"}, seed=0)
+    assert r["success"] and not r["collision"]
+    assert r["yielder"] == "B" and r["rule"] == "reservation" and r["refuge"] == "room_hi"

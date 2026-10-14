@@ -258,8 +258,21 @@ class Agent:
             s = self.fresh_peer(pid, t)
             if s is None or pid == exclude or t < self.no_neg_until.get(pid, -1):
                 continue
+            if self.policy["name"] == "reservation" and not (self.sc.in_corridor(x) and self.sc.in_corridor(s["x"])):
+                continue  # whoever is inside holds the corridor; negotiate only if both got in
             if (s["dir"] == -self.dir and s["mode"] in modes
                     and self.dir * (s["x"] - x) > 0 and abs(s["x"] - x) < self.p.detect_range):
+                return pid
+        return None
+
+    def corridor_holder(self, t, x):
+        """Reservation policy: an oncoming peer that is inside the corridor while this robot is still outside."""
+        entry = 0.0 if self.dir > 0 else self.sc.length
+        if self.dir * (entry - x) <= 0:  # already in the corridor or past it
+            return None
+        for pid in sorted(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is not None and s["dir"] == -self.dir and s["mode"] != "DONE" and self.sc.in_corridor(s["x"]):
                 return pid
         return None
 
@@ -360,6 +373,14 @@ class Agent:
                 return self.brake()
         if self.fallback_reactive and self.reactive_until is not None and t > self.reactive_until:
             self.fallback_reactive, self.reactive_until = False, None
+        if self.policy["name"] == "reservation" and self.comms and not self.fallback_reactive:
+            holder = self.corridor_holder(t, x)
+            if holder is not None:
+                room = next((r for r in self.map.refuges() if r.kind == "room" and (r.x < 0) == (self.dir > 0)), None)
+                if room is None or self.refuge_taken(t, room, perc):
+                    return self.brake()
+                self.begin_yield(t, room, holder, rule="reservation")
+                return self.brake()
         if self.comms and not self.fallback_reactive:
             pid = self.oncoming_conflict(t, x, ("CRUISE", "NEGOTIATE", "WAIT_START"))
             if pid is not None:
