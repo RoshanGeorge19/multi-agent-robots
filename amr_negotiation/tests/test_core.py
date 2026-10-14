@@ -267,3 +267,21 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
     assert not s.lane_clear(stem, Perception(), t=10.0)
     s.peers["B"].update(x=stem.x - 0.8)  # already past the stem
     assert s.lane_clear(stem, Perception(), t=10.0)
+
+
+def test_tjunction_goal_waits_in_bay_for_stem_exit():
+    """Stem occupant leaving towards a robot whose destination is the stem: no deadlock."""
+    from amr_negotiation import sweep as SW
+
+    for goal_x, sd_b in ((-1.5, 0.0), (10.0, 8.0)):
+        sc = SW.apply_overrides(
+            load_scenario(ROOT / "scenarios" / "corridor_tjunction_goal.yaml"),
+            SW._overrides({"agents.0.start_delay": 0.0, "agents.1.start_delay": sd_b,
+                           "agents.2.start_delay": 0.0, "agents.2.goal_x": goal_x, "comms.loss": 0.0}),
+        )
+        for pol in ("fixed_priority", "rule_based", "cost_bid"):
+            spec = {"name": pol}
+            if pol == "rule_based":
+                spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
+            r = run_episode(sc, spec, seed=0)
+            assert r["success"] and not r["collision"], (goal_x, sd_b, pol)

@@ -294,7 +294,11 @@ class Agent:
             self.log(t, "goal_reached")
             return 0.0, 0.0
         yp = self.yielding_peer(t, x) if self.comms else None
-        if yp is not None and not (self.goal_ref is not None and yp[1].get("refuge") == self.goal_ref.id):
+        if yp is not None and self.goal_ref is not None:
+            yr = refuge_by_id(self.sc, yp[1].get("refuge"))
+            if yr is None or yr.id == self.goal_ref.id or self.dir * (yr.x - self.goal_ref.x) > 0:
+                yp = None  # we turn off into our destination before reaching the yielder's refuge
+        if yp is not None:
             ref = refuge_by_id(self.sc, yp[1]["refuge"])
             if ref is not None and self.dir * (pass_x(ref, self.dir, self.sc) - x) > 0:
                 self.log(t, "peer_yielding", peer=yp[0], refuge=ref.id)
@@ -311,6 +315,14 @@ class Agent:
         g = self.goal_ref
         if g is not None:
             if self.refuge_taken(t, g, perc):
+                occ = self.goal_occupant(t, g, x)
+                if occ is not None:
+                    # the occupant will leave towards us: wait in another bay so it can pass
+                    w_ref = self.goal_wait_refuge(t, x, g, perc)
+                    if w_ref is not None:
+                        self.log(t, "goal_wait", peer=occ, refuge=w_ref.id, goal=g.id)
+                        self.begin_yield(t, w_ref, occ, rule="goal_wait")
+                        return self.brake()
                 # destination branch still occupied: wait outside the window its occupant needs to leave
                 lim = g.span / 2 + 2 * self.r + 2 * self.sc.clearance + 2.0 + 0.3
                 target = g.x - self.dir * lim
@@ -337,6 +349,30 @@ class Agent:
         if self.fallback_reactive and self.reactive_blocked(t, pose, perc, v, vs):
             return self.brake()
         return vs, w
+
+    def goal_occupant(self, t, g: Refuge, x: float):
+        """Peer we should let pass while our destination is occupied: its occupant leaving towards us,
+        or an oncoming robot in the corridor (waiting in the lane would block it)."""
+        if not self.comms:
+            return None
+        for pid in list(self.peers):
+            s = self.fresh_peer(pid, t)
+            if s is None or s["dir"] != -self.dir or s.get("goal_ref") == g.id:
+                continue
+            if s.get("refuge") == g.id:
+                return pid
+            if s["mode"] in ("CRUISE", "NEGOTIATE") and 0 < self.dir * (s["x"] - x) < self.p.detect_range:
+                return pid
+        return None
+
+    def goal_wait_refuge(self, t, x, g: Refuge, perc):
+        """Closest free bay before our destination (ahead preferred) to wait in while its occupant leaves."""
+        cands = [r for r in self.map.refuges()
+                 if r.kind == "bay" and r.id != g.id and self.dir * (g.x - r.x) > g.span / 2 + r.span / 2
+                 and not self.refuge_taken(t, r, perc)]
+        ahead = [r for r in cands if self.dir * (r.x - x) >= -0.05]
+        pool = ahead or [r for r in cands if self.dir * (x - r.x) < 3.0]
+        return min(pool, key=lambda r: abs(r.x - x)) if pool else None
 
     def brake(self):
         return 0.0, 0.0
