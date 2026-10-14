@@ -1,0 +1,34 @@
+| blocked | policy | loss | success | deadlock | collision | mean delay (s) | extra vs none (s) | decisions/run |
+|---|---|---|---|---|---|---|---|---|
+| none | reactive | 0% | 10/10 | 0 | 0 | 69.9 | +0.0 | 0.0 |
+| none | reactive | 50% | 10/10 | 0 | 0 | 69.9 | +0.0 | 0.0 |
+| none | fixed_priority | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| none | fixed_priority | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| none | rules_default | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| none | rules_default | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| none | cost_bid | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| none | cost_bid | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| bay0 | reactive | 0% | 10/10 | 0 | 0 | 103.3 | +33.4 | 0.0 |
+| bay0 | reactive | 50% | 10/10 | 0 | 0 | 103.3 | +33.4 | 0.0 |
+| bay0 | fixed_priority | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| bay0 | fixed_priority | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| bay0 | rules_default | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| bay0 | rules_default | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| bay0 | cost_bid | 0% | 10/10 | 0 | 0 | 22.0 | +0.0 | 2.0 |
+| bay0 | cost_bid | 50% | 10/10 | 0 | 0 | 23.5 | +0.0 | 2.2 |
+| bay1 | reactive | 0% | 8/10 | 2 | 0 | 85.0 | +24.4 | 0.0 |
+| bay1 | reactive | 50% | 8/10 | 2 | 0 | 85.0 | +24.4 | 0.0 |
+| bay1 | fixed_priority | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| bay1 | fixed_priority | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
+| bay1 | rules_default | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| bay1 | rules_default | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
+| bay1 | cost_bid | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| bay1 | cost_bid | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
+| both | reactive | 0% | 7/10 | 3 | 0 | 103.7 | +51.8 | 0.0 |
+| both | reactive | 50% | 7/10 | 3 | 0 | 103.7 | +51.8 | 0.0 |
+| both | fixed_priority | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| both | fixed_priority | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
+| both | rules_default | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| both | rules_default | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
+| both | cost_bid | 0% | 10/10 | 0 | 0 | 68.1 | +46.1 | 2.0 |
+| both | cost_bid | 50% | 10/10 | 0 | 0 | 70.1 | +46.6 | 2.2 |
