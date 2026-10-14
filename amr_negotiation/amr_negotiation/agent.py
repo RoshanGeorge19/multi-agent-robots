@@ -172,7 +172,8 @@ class Agent:
         return {"type": "STATE", "sender": self.id, "t": t, "x": x, "y": y, "theta": th, "v": v,
                 "dir": self.dir, "goal_x": self.goal_x, "mode": self.mode, "phase": self.phase,
                 "refuge": (self.ylds or {}).get("refuge_id"), "entered_t": self.entered_t,
-                "with": (self.ylds or self.prc or {}).get("peer")}
+                "with": (self.ylds or self.prc or {}).get("peer"),
+                "goal_ref": self.goal_ref.id if self.goal_ref is not None else None}
 
     def bid_msg(self, t) -> dict:
         n = self.neg
@@ -473,9 +474,19 @@ class Agent:
             return self.lane_clear(ref, perc)
         return False
 
-    def lane_clear(self, ref: Refuge, perc, extra: float = 0.0) -> bool:
-        lim = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance + extra
-        return not any(abs(px - ref.x) < lim and abs(py) < self.sc.half_width + 0.1 for px, py in perc.peers)
+    def lane_clear(self, ref: Refuge, perc, extra: float = 0.0, t: float | None = None) -> bool:
+        base = ref.span / 2 + 2 * self.r + 2 * self.sc.clearance
+        waiting = [] if t is None else [
+            s["x"] for pid in list(self.peers)
+            if (s := self.fresh_peer(pid, t)) is not None and s.get("goal_ref") == ref.id and abs(s["v"]) < 0.05
+        ]
+        return not any(
+            abs(px - ref.x) < base + extra
+            and abs(py) < self.sc.half_width + 0.1
+            # a stationary robot waiting to enter this refuge only blocks us inside the base window
+            and not (abs(px - ref.x) >= base and any(abs(px - wx) < 0.3 for wx in waiting))
+            for px, py in perc.peers
+        )
 
     def refuge_taken(self, t, ref: Refuge, perc, ignore=None) -> bool:
         for pid in list(self.peers):
@@ -562,7 +573,7 @@ class Agent:
                 self.log(t, "leaving_refuge", refuge=ref.id)
             return 0.0, 0.0
         if ph == "back_out":
-            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0) or self.passer_pending(t, ref):
+            if not self.lane_clear(ref, perc, extra=2.0 if c.get("forward_out") else 0.0, t=t) or self.passer_pending(t, ref):
                 if abs(pose[1]) > self.sc.half_width + self.r:
                     self.phase = "parked"  # still inside the refuge: let the peer pass first
                     return 0.0, 0.0
