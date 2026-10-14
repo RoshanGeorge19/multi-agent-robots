@@ -52,6 +52,7 @@ class Agent:
         self.p = params or AgentParams(**policy.get("agent_params", {}))
         self.rng = rng or np.random.default_rng()
         self.id, self.dir, self.goal_x = cfg.id, cfg.direction, cfg.goal_x
+        self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
         self.v_max = cfg.v_max or sc.robot.v_max
         self.v_rev = cfg.v_rev_max or sc.robot.v_rev_max
         self.r = sc.robot.radius
@@ -287,7 +288,22 @@ class Agent:
             if pid is not None:
                 self.start_neg(t, pose, pid)
                 return self.brake()
-        v, w, _ = self.lane_cmd(pose, self.goal_x)
+        target = self.goal_x
+        g = self.goal_ref
+        if g is not None:
+            if self.refuge_taken(t, g, perc):
+                # destination branch still occupied: wait outside the window its occupant needs to leave
+                lim = g.span / 2 + 2 * self.r + 2 * self.sc.clearance + 2.0 + 0.3
+                target = g.x - self.dir * lim
+                if self.dir * (target - x) <= 0:
+                    return self.brake()
+            elif self.dir * (x - g.x) >= -self.p.goal_tol:
+                self.begin_yield(t, g, None, rule="goal")
+                self.n_yields -= 1
+                self.ylds["goal"] = True
+                self.phase = "turn_in"
+                return self.brake()
+        v, w, _ = self.lane_cmd(pose, target)
         vs = self.safe_v(pose, perc.points, v)
         if self.fallback_reactive and self.reactive_blocked(t, pose, perc, v, vs):
             return self.brake()
@@ -479,7 +495,7 @@ class Agent:
         c = self.ylds
         ref: Refuge = c["refuge"]
         ph = self.phase
-        if ph in ("to_refuge", "turn_in"):
+        if ph in ("to_refuge", "turn_in") and not c.get("goal"):
             # two robots heading for the same refuge (e.g. after lost bids): the higher id gives way
             for pid in list(self.peers):
                 s = self.fresh_peer(pid, t)
@@ -523,7 +539,10 @@ class Agent:
             return v, w
         if ph == "park_in":
             v, w, done = self.point_cmd(pose, ref.x, ref.park_y, reverse=False)
-            if done:
+            if done and c.get("goal"):
+                self.mode, self.done_t, self.phase = "DONE", t, ""
+                self.log(t, "goal_reached", refuge=ref.id)
+            elif done:
                 self.phase, c["t_parked"] = "parked", t
                 self.log(t, "parked", refuge=ref.id)
             return v, w
