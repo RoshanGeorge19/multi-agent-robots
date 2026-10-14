@@ -245,6 +245,26 @@ def test_tjunction_goal_refuge():
     )
 
 
+def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc.blocked_bays = ["bay1"]
+    for pol in ("fixed_priority", "cost_bid"):
+        r = run_episode(sc, {"name": pol}, seed=0, record=True)
+        assert r["success"] and not r["collision"], pol
+        assert any(e["event"] == "refuge_blocked" for e in r["events"]), pol
+
+
+def test_learned_policy_uses_table_and_falls_back():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    r0 = run_episode(sc, {"name": "learned", "table": {}}, seed=0)
+    key = r0["decisions"][0]["features"]
+    assert r0["success"] and r0["decisions"][0]["rule"] == "learned:fallback"
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [100.0, 1], "b": [1.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"B"}
+    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [1.0, 1], "b": [100.0, 1]}}}, seed=0)
+    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"A"}
+
+
 def test_scenario_goals_reachable_without_touching_room_walls():
     """A goal closer than radius + stop margin to an end wall is only reachable in 2D (no wall perception)."""
     for f in sorted((ROOT / "scenarios").glob("*.yaml")):
@@ -267,26 +287,6 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
     assert not s.lane_clear(stem, Perception(), t=10.0)
     s.peers["B"].update(x=stem.x - 0.8)  # already past the stem
     assert s.lane_clear(stem, Perception(), t=10.0)
-
-
-def test_learned_policy_uses_table_and_falls_back():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
-    r0 = run_episode(sc, {"name": "learned", "table": {}}, seed=0)
-    key = r0["decisions"][0]["features"]
-    assert r0["success"] and r0["decisions"][0]["rule"] == "learned:fallback"
-    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [100.0, 1], "b": [1.0, 1]}}}, seed=0)
-    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"B"}
-    r = run_episode(sc, {"name": "learned", "table": {key: {"a": [1.0, 1], "b": [100.0, 1]}}}, seed=0)
-    assert r["success"] and {d["yielder"] for d in r["decisions"]} == {"A"}
-
-
-def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
-    sc.blocked_bays = ["bay1"]
-    for pol in ("fixed_priority", "cost_bid"):
-        r = run_episode(sc, {"name": pol}, seed=0, record=True)
-        assert r["success"] and not r["collision"], pol
-        assert any(e["event"] == "refuge_blocked" for e in r["events"]), pol
 
 
 def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
@@ -329,6 +329,19 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
             assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
 
 
+def test_bids_weight_each_delay_by_its_owners_urgency():
+    from amr_negotiation.planner import best_plan
+    from amr_negotiation.policies import group_yield_cost, yield_bid
+
+    sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
+    mk = lambda i, x, d, u, g=None: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, u, False,
+                                             0.26, 0.15, 1.8, 0.5, group=g)
+    a, b = mk("A", 1.0, 1, 1.0), mk("B", 6.0, -1, 3.0)
+    p = best_plan(a, b, sc)
+    assert yield_bid(a, b, sc) == pytest.approx(1.0 * p["yielder_delay"] + 3.0 * p["proceeder_delay"])
+    assert group_yield_cost(a, b, sc) == pytest.approx(yield_bid(a, b, sc))
+
+
 def test_clarke_pivot_is_second_price_and_truthful():
     import itertools
     import random
@@ -356,3 +369,11 @@ def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
         rb = run_episode(sc, {"name": "cost_bid"}, seed=seed)
         assert rc["success"] and rc.get("yielder") == rb.get("yielder")
         assert all(v >= 0 for v in rc["decisions"][0]["payments"].values())
+
+
+def test_reservation_waits_outside_while_corridor_is_held():
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml"),
+                         parse_set(["agents.1.start_delay=5.0"]))
+    r = run_episode(sc, {"name": "reservation"}, seed=0)
+    assert r["success"] and not r["collision"]
+    assert r["yielder"] == "B" and r["rule"] == "reservation" and r["refuge"] == "room_hi"
