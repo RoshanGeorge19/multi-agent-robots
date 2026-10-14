@@ -243,3 +243,12 @@ def test_tjunction_goal_refuge():
         e["agent"] == "A" and e["event"] == "goal_reached" and e.get("refuge") == "bay1"
         for e in r["events"]
     )
+
+
+def test_scenario_goals_reachable_without_touching_room_walls():
+    """A goal closer than radius + stop margin to an end wall is only reachable in 2D (no wall perception)."""
+    for f in sorted((ROOT / "scenarios").glob("*.yaml")):
+        sc = load_scenario(f)
+        m = sc.robot.radius + 0.10 + 0.05
+        for a in sc.agents:
+            assert -sc.room_length + m <= a.goal_x <= sc.length + sc.room_length - m, (f.name, a.id, a.goal_x)

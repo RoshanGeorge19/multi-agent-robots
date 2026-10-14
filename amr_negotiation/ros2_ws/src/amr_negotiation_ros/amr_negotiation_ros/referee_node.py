@@ -39,6 +39,7 @@ class Referee(Node):
         self.pose: dict[str, tuple] = {}
         self.min_dist = math.inf
         self.collision_t = None
+        self.gone: set[str] = set()
         self.reverse = {i: 0.0 for i in self.ids}
         self.last_t = {}
         self.events, self.summaries = [], {}
@@ -62,6 +63,11 @@ class Referee(Node):
             self.ready.add(e["agent"])
         elif e["event"] == "summary":
             self.summaries[e["agent"]] = e
+            if self.sc.despawn_done and e["agent"] not in self.gone:  # as in sim2d: finished robots leave the world
+                self.gone.add(e["agent"])
+                subprocess.Popen(["gz", "service", "-s", f"/world/{self.world}/remove", "--reqtype", "gz.msgs.Entity",
+                                  "--reptype", "gz.msgs.Boolean", "--timeout", "2000",
+                                  "--req", f'name: "{e["agent"]}" type: MODEL'])
             self.get_logger().info(f"{e['agent']} done at t={e['arrival']:.1f}s")
         else:
             self.events.append(e)
@@ -96,6 +102,8 @@ class Referee(Node):
         t = self.sim_t()
         for a in range(len(self.ids)):
             for b in range(a + 1, len(self.ids)):
+                if self.ids[a] in self.gone or self.ids[b] in self.gone:
+                    continue
                 pa, pb = self.pose[self.ids[a]], self.pose[self.ids[b]]
                 d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
                 self.min_dist = min(self.min_dist, d)
