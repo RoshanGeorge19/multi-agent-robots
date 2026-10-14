@@ -1,0 +1,12 @@
+('B_loaded', 'cost_bid') n 72 succ 72 coll 0 delay 55.6 urg-w delay 55.6
+('B_loaded', 'fixed_priority') n 72 succ 72 coll 0 delay 33.7 urg-w delay 33.7
+('B_loaded', 'group_bid') n 72 succ 72 coll 0 delay 33.7 urg-w delay 33.7
+('B_loaded', 'rules_default') n 72 succ 72 coll 0 delay 100.1 urg-w delay 100.1
+('B_urgent', 'cost_bid') n 72 succ 72 coll 0 delay 97.1 urg-w delay 132.6
+('B_urgent', 'fixed_priority') n 72 succ 72 coll 0 delay 33.7 urg-w delay 90.3
+('B_urgent', 'group_bid') n 72 succ 72 coll 0 delay 97.1 urg-w delay 132.6
+('B_urgent', 'rules_default') n 72 succ 72 coll 0 delay 100.1 urg-w delay 133.6
+('none', 'cost_bid') n 72 succ 72 coll 0 delay 55.6 urg-w delay 55.6
+('none', 'fixed_priority') n 72 succ 72 coll 0 delay 33.7 urg-w delay 33.7
+('none', 'group_bid') n 72 succ 72 coll 0 delay 33.7 urg-w delay 33.7
+('none', 'rules_default') n 72 succ 72 coll 0 delay 40.0 urg-w delay 40.0
