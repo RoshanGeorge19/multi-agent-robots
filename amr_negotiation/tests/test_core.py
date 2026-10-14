@@ -249,7 +249,7 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
     """Stem occupant leaving towards a robot whose destination is the stem: no deadlock."""
     from amr_negotiation import sweep as SW
 
-    for goal_x, sd_b in ((-2.5, 0.0), (10.0, 8.0)):
+    for goal_x, sd_b in ((-1.5, 0.0), (10.0, 8.0)):
         sc = SW.apply_overrides(
             load_scenario(ROOT / "scenarios" / "corridor_tjunction_goal.yaml"),
             SW._overrides({"agents.0.start_delay": 0.0, "agents.1.start_delay": sd_b,

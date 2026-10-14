@@ -26,7 +26,7 @@ def run(a):
 
 if __name__ == '__main__':
     jobs = [(p, a, b, s, g, ls, k) for p in POLS for a in (0.0, 4.0) for b in (0.0, 4.0, 8.0) for s in (0.0, 6.0)
-            for g in (10.0, -2.5) for ls in (0.0, 0.5) for k in range(2)]
+            for g in (10.0, -1.5) for ls in (0.0, 0.5) for k in range(2)]
     with mp.Pool(8) as pool:
         res = pool.map(run, jobs)
     agg = collections.defaultdict(list)

@@ -2,7 +2,7 @@
 
 Scenario: `scenarios/corridor_tjunction_goal.yaml`. A drives east with the side branch (stem, modelled as a
 deep bay `bay1` at x = 5.5) as its destination; B drives west through the corridor; S starts parked in the
-stem and leaves it, heading west (goal −2.5) or east (goal 10). Grid: A/B/S start delays {0,4}×{0,4,8}×{0,6},
+stem and leaves it, heading west (goal −1.5; −2.5 lay on the room wall and was only reachable in 2D) or east (goal 10). Grid: A/B/S start delays {0,4}×{0,4,8}×{0,6},
 both S goals, 2 seeds, at 0% and 50% packet loss: 48 runs per policy × loss cell
 (`python studies/tjunction_goal.py`). The stem is still a deep-bay approximation, not a full 2-D junction.
 
