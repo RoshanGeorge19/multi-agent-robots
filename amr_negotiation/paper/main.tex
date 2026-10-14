@@ -1,0 +1,121 @@
+\documentclass[letterpaper,journal]{IEEEtran}
+\usepackage{graphicx,booktabs,amsmath,url,multirow}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\cb}{\texttt{cost\_bid}}
+\newcommand{\gb}{\texttt{group\_bid}}
+\begin{document}
+\title{Who Backs Into the Bay? Benchmarking Negotiation Policies for Head-On Robot Encounters in Single-Lane Corridors}
+\author{Brian Deegan% <-this % stops a space
+\thanks{B. Deegan is with Electrical and Electronic Engineering, University of Galway, Ireland (e-mail: brian.deegan@universityofgalway.ie).}%
+\thanks{DRAFT, not for distribution.}}
+\maketitle
+
+\begin{abstract}
+When two autonomous mobile robots meet head-on in a corridor that admits only one, one of them must reverse into a pull-in bay or out of the corridor. We study who should yield, and into which refuge, with a benchmark that runs the same agent code in a fast 2D unicycle simulator and in ROS~2/Gazebo with TurtleBot3 Waffle robots. We compare a non-communicating reactive baseline, fixed priority, an ordered rulebook, cost-based bidding, and a hindsight oracle, and we add a group bid for convoys and a learned tabular negotiator. Across about 30\,000 simulated encounters, the reactive baseline deadlocks in 6.9\% of runs and incurs 3.8$\times$ the oracle's total delay, while every negotiating policy succeeds. Cost bidding matches the oracle when its cost model is exact and remains ahead of a simple rulebook up to about $\pm$50\% estimation error; with unequal urgency it has 0.8\,s of weighted-delay regret against 27\,s for fixed priority. Bids can be gamed, and Vickrey--Clarke--Groves transfers restore truthful reporting. Under extreme packet loss, a naive protocol produced rare collisions in which both robots yielded; a decision-commit step with a sensor check on the bay removed them (0 in 1\,440 episodes). We extend the benchmark to three-robot convoys, a T-junction, inconsistent and wrong maps, and validate 158 runs in Gazebo, where the negotiation outcome matched 2D in every negotiating run once two sim-to-real gaps (an unreachable goal and lidar occlusion) were fixed.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Multi-robot systems, negotiation, deadlock, path planning for multiple mobile robots, benchmarking.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{N}{arrow} aisles, doorways, and service corridors force autonomous mobile robots (AMRs) into conflicts that local collision avoidance cannot resolve: if two robots meet head-on where only one fits, someone must back off. Reciprocal collision avoidance and control-barrier-function controllers deadlock in such symmetric configurations~\cite{grover2023before,dergachev2021distributed,chandra2025deadlock}, while centralized planners and traffic managers avoid the conflict at the price of a global plan~\cite{cap2016provably,okumura2022pibt,hiertraffic2023,rmftraffic}. Between these extremes lies decentralized negotiation: the robots exchange messages and agree who yields. Rules of the road~\cite{kato1992coordinating,shoham1995social}, auctions~\cite{gerkey2002sold,gautier2022negotiated}, learned policies~\cite{vmasgiveway,bettini2023heterogeneous}, and, recently, large-language-model dialogue~\cite{marlin2024,gamechat2025,garg2024llm} have all been proposed, but each paper builds its own scene and metrics, and no study compares the families under the same physics and communication model~\cite{chandra2026social}.
+
+This letter contributes:
+\begin{enumerate}
+\item an open benchmark of the head-on corridor encounter with pull-in bays, in which the same agent state machine runs in a 2D simulator for Monte Carlo sweeps and in ROS~2 Jazzy/Gazebo Harmonic with TurtleBot3 Waffles;
+\item a head-to-head comparison of reactive, fixed-priority, rule-based, cost-bidding, group-bidding, and learned negotiators against a hindsight oracle, over bay geometry, robot asymmetry, bid noise, strategic misreporting, fairness over repeated encounters, and packet loss and latency;
+\item a decision-commit protocol that removes the both-yield collisions we observed under extreme packet loss, and extensions to convoys, a T-junction, inconsistent maps, and physically blocked bays;
+\item a Gazebo validation (158 runs) that quantifies where the 2D conclusions transfer and exposes two sim-to-real gaps.
+\end{enumerate}
+
+\section{Related Work}
+\emph{Deadlock in narrow passages.} Symmetric encounters are a known failure mode of decentralized avoidance. Grover et al.~\cite{grover2023before} characterize CBF deadlocks; Dergachev and Yakovlev~\cite{dergachev2021distributed} switch to local multi-agent path finding (MAPF) when ORCA stalls; Chandra et al.~\cite{chandra2025deadlock} perturb controls onto liveness sets in doorways and hallways. These works resolve who goes first by slowing down, not by choosing which robot reverses into which refuge.
+\emph{Centralized coordination.} MAPF and AGV traffic management treat bays as graph nodes~\cite{stern2019mapf,okumura2022pibt,experience2024narrow,macga2025}; precedence-preserving and loosely coupled coordinators provide safety under delays~\cite{cap2016provably,mannucci2019provably}. They require a global planner and typically charge reversing as ordinary motion.
+\emph{Negotiation and mechanisms.} Social laws~\cite{shoham1995social}, market-based allocation~\cite{gerkey2002sold}, and negotiated path planning~\cite{gautier2022negotiated} assume truthful costs; mechanism design shows self-interested agents may misreport~\cite{vickrey1961counterspeculation,nisan2001algorithmic}. Fairness across repeated encounters appears in road-bottleneck give-way schemes~\cite{bottleneckiv2023}.
+\emph{Learning and LLMs.} MARL give-way tasks exist in VMAS~\cite{vmasgiveway}, and MARLIN uses LLM negotiation to guide MARL in a corridor with TurtleBot3 robots~\cite{marlin2024}; GameChat sets priority through LLM dialogue in doorways~\cite{gamechat2025}. None compares against rule-based, bidding, and oracle baselines under communication impairment, which is the gap we address.
+
+\section{Benchmark}
+\subsection{Scenarios}
+The base scenario (Fig.~\ref{fig:scen}a) is an 8\,m$\times$0.65\,m corridor between two 2.5\,m rooms. A TurtleBot3 Waffle (0.25\,m swept radius, 0.26\,m/s forward, 0.15\,m/s reverse) fits; two cannot pass. Bays are 0.8\,m wide and 0.6\,m deep, with configurable position, side, and number; the end rooms also serve as refuges. Robot A enters at $t=0$, and B's start delay is drawn from $U[0,8]$\,s. Variants add a second bay (Fig.~\ref{fig:scen}b), a two-robot convoy against one oncoming robot (Fig.~\ref{fig:scen}c), and a T-junction (Fig.~\ref{fig:scen}d) whose side branch is modeled as a 2\,m-deep bay that a robot may leave or have as its destination. Robots can differ in urgency, payload, and speed limits. Communication is a broadcast bus with configurable latency, jitter, and loss.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\columnwidth]{fig/scenarios.pdf}
+\caption{Benchmark scenarios (gray: free space; $\times$: refuge parking poses). Arrows show travel direction; in (d) robot S starts in the side branch and A's destination is the branch.}
+\label{fig:scen}
+\end{figure}
+
+\subsection{Agent and protocol}
+Each robot runs the same state machine (cruise, negotiate, yield, proceed, done) at 20\,Hz, with lidar perception and a unicycle model. A conflict is detected when an oncoming peer is within the detection range (6\,m by default). Robots broadcast STATE messages at 5\,Hz and, on conflict, exchange BID messages containing a snapshot of their pose, speed, urgency, payload, and known refuges. Both robots then run the same deterministic decision function on the same pair of snapshots, so they agree without a third message when no message is lost. A yield plan names the yielder and its refuge; feasibility checks that the refuge lies behind the yielder and is not occupied.
+
+\emph{Decision commit.} With message loss, the two robots may decide on different snapshots. In the committed protocol each robot broadcasts its decision and acts only once it holds the peer's; disagreements are resolved by the lower-ID robot's decision, and an unconfirmed decision expires after a timeout, after which the robot acts on its own decision. A yielder that arrives at its refuge and senses it occupied proceeds instead, and a robot waiting to pass renegotiates if its supposed yielder approaches it.
+
+\subsection{Policies}
+\emph{Reactive}: no messages; a blocked robot waits a random patience time and then backs to the nearest refuge behind it. \emph{Fixed priority}: the higher-ID robot always yields. \emph{Rulebook}: an ordered list of rules (no feasible refuge; urgency; payload; first in corridor; refuge within 2\,m behind; ID tie-break), the first discriminating rule decides; a variant puts ``closest refuge yields'' first. \emph{\cb}: each robot bids its predicted cost of yielding, the urgency-weighted delay of its best feasible plan computed from the robot kinematics; the lower bid yields. \emph{\gb}: as \cb, but each side's bid sums the yield costs of the bidder and its same-direction followers. \emph{Learned}: a tabular contextual bandit over a coarse observation (each robot's binned distance to its nearest feasible refuge behind it, which robot is more urgent, and both payload flags) trained on 800 encounters by running both forced outcomes; unseen observations fall back to fixed priority. \emph{Oracle}: simulates each possible yielder in hindsight and keeps the better outcome.
+
+\subsection{Metrics and statistics}
+We report success (all robots reach their goals), deadlock (no progress by the time limit), collision (body contact), makespan, total delay relative to free-flow travel time, urgency-weighted delay, reverse distance, and Jain's fairness index~\cite{jain1984fairness}. Regret is a policy's delay minus the oracle's, paired by seed. Unless noted, $\pm$ values are 95\% confidence intervals.
+
+\section{Results}
+\subsection{Two robots, one corridor}
+\emph{Price of no communication.} Over 2\,940 single-bay encounters with the bay position swept along the corridor, the reactive baseline succeeded in 93.1\% of episodes; the rest deadlocked. Its total delay was $98\pm5$\,s against $26\pm0.6$\,s for the oracle, it reversed 5.7\,m against 0.64\,m, and both robots backed off in 39\% of episodes. All negotiating policies succeeded in every episode without collision.
+
+\emph{Price of decentralization and bay position.} With symmetric robots, fixed priority and the default rulebook make identical decisions, with 6.4\,s mean regret, rising to 14.7\,s when the bay is 2--3\,m from A's entrance and the late robot B is sent back past it. Putting ``closest refuge yields'' first halves the regret to 3.1\,s. \cb\ chose the oracle's yielder in every single- and two-bay episode. This match is a best case, because the bids use the simulator's own kinematics.
+
+\emph{Noisy bids.} Multiplying each bid by a log-normal factor $e^{\sigma\epsilon}$, $\epsilon\sim\mathcal N(0,1)$, raises \cb's regret to 0.2, 1.5, 3.3, and 4.5\,s at $\sigma=0.1, 0.25, 0.5, 1$ (Fig.~\ref{fig:res}a). At $\sigma\approx0.5$, bidding is no better than the noise-free closest-refuge rule, so its cost estimates must be good to within roughly a factor of 1.6.
+
+\emph{Asymmetric robots.} With differing urgency (1 or 3), payload, or half speed (5\,040 episodes), the urgency-weighted regret is 27\,s for fixed priority, 3.6\,s for the default rulebook, and 0.8\,s for \cb\ (Fig.~\ref{fig:res}b). An oracle minimizing unweighted delay has 7.1\,s regret on the weighted metric: the choice of objective matters as much as the protocol.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\columnwidth]{fig/results.pdf}
+\caption{(a) Regret of \cb\ against the oracle as bid noise grows, compared with two noise-free rulebooks. (b) Urgency-weighted regret with asymmetric robots.}
+\label{fig:res}
+\end{figure}
+
+\subsection{Incentives and fairness}
+\emph{Misreporting.} If B inflates its bid by $2\times$ or more, it never yields: its own delay falls by $1.0\pm0.2$\,s while total delay rises by 4.9\,s (+20\%). ``Lower bid yields'' is not incentive compatible. With Clarke-pivot (VCG) transfers, where the robot that proceeds pays the yielder's reported bid in delay credit, the same inflation costs B $9.7\pm2.0$\,s, so truthful reporting is optimal. The transfers are not budget balanced: about 21--25\,s of credit per encounter leaves the pair, which in a fleet would be a virtual currency.
+
+\emph{Fairness.} Fixed priority makes B yield in every episode, and over repeated encounters it adds 28\% delay for a Jain index of 0.75; \cb\ is the most efficient but concentrates delay on one robot (per-episode Jain index 0.56). Over 20 repeated encounters, strict alternation costs 23\% extra delay for a Jain index of 0.99 on cumulative delays, whereas credit-weighted bidding, which minimizes total delay plus $\lambda$ times the difference in cumulative delays, reaches 0.997 at $\lambda=0.25$ for 8\% extra delay.
+
+\subsection{Communication impairment}
+With 6\,m detection, loss up to 90\%, and latency up to 2\,s (3\,600 episodes), success stayed at or above 93\% with no collisions; shorter detection ranges (1.5\,m) and faster robots (0.5\,m/s) did not break the protocols (4\,320 episodes, $\geq96.7\%$ success). At 90--99\% loss with 4--8\,s latency, however, the uncommitted protocol collided in 6 of 1\,440 episodes, each time after both robots yielded: one acted on a stale decision while the other had timed out to reactive behavior. With decision commit and the bay-occupancy check, the same 1\,440 episodes had no collisions, deadlocks fell from 2.5\% to 0.9\%, and success rose from 97.1\% to 99.1\%, at about 4\,s extra mean delay. In ordinary conditions the commit step adds 0.7--3\,s of delay.
+
+\subsection{Three robots and junctions}
+\emph{Convoy.} With a two-robot convoy against one oncoming robot (72 runs per cell, 0\% and 50\% loss), a yielding leader could be blocked by its own follower; a ``make room'' rule, in which the follower backs into its own refuge, removed these deadlocks for every policy. Pairwise \cb\ ignores the follower and averaged 55.6\,s total delay; \gb\ reduced this to 33.7\,s, matching the best rule. When the lone robot is urgent, however, \gb\ still makes the convoy yield and incurs 132.6\,s urgency-weighted delay against 90.3\,s for fixed priority, because it plans each member's yield independently instead of in series.
+
+\emph{T-junction.} With one robot turning into the branch, one passing, and one leaving the branch (48 runs per cell), naive waiting in the lane deadlocked fixed priority in 19 of 48 runs at 0\% loss. Letting the turning robot wait in a free bay before the junction gave 48/48 for fixed priority, the rulebook, and \cb\ at both 0\% and 50\% loss, with mean delay over successes of 60.4, 53.1, and 48.8\,s at 0\% loss. The reactive baseline succeeded in 27/48. All failures in this study were deadlocks.
+
+\subsection{Inconsistent and wrong maps}
+When robots know different bays (two-bay corridor, 10 seeds per cell), map disagreement never caused a collision: decision commit detects the mismatch and both adopt one decision. It costs time when the winning robot has the poorer map, +9.1\,s for \cb\ and +29.6\,s for the rulebooks; listing known bays in each BID removed the cost in every case. When the useful bay was physically blocked, every negotiating policy initially deadlocked (10/10), because the yielder's sensor check mistook the obstacle for a robot that had already yielded. Distinguishing obstructions from robots via STATE messages and falling back to the next refuge restored 10/10 success with no collisions, at +46\,s because the obstruction is discovered only on arrival.
+
+\subsection{Learned negotiator}
+On 150 held-out encounters in the training layout, the learned table reached rulebook-level weighted-delay regret (+2.6\,s, against +2.5\,s for the rulebook, +9.2\,s for fixed priority and +0.4\,s for \cb); with 200 training encounters it was already at +2.8\,s. In an unseen single-bay layout it was no better than fixed priority (+13.1\,s against +12.3\,s), with 15\% of observations unseen.
+
+\subsection{Gazebo validation}
+Table~\ref{tab:gz} summarizes 158 Gazebo runs with one run per scenario, policy, and seed. In the single-bay corridor, all 40 negotiating runs chose the same yielder as 2D, with makespans within 0.4\,s; the reactive baseline agreed on the yielder in only 5 of 10 runs, as expected from its random back-off. Convoy and 50\%-loss runs matched 2D in every case. The T-junction initially failed in Gazebo for two reasons that the 2D simulator hid: a goal placed on the room wall was ``reached'' in 2D, which has no wall perception, and in Gazebo the walls of the deep branch occlude the lidar of a robot inside it, so it left the branch in front of an approaching robot. After correcting the goal and letting the exit check also count peers whose STATE shows them approaching, all 36 T-junction runs succeeded with the same first yielder as 2D. One discrepancy remains unexplained: with \cb\ and the robot leaving the branch, Gazebo finished 22\,s faster than 2D on average despite identical decisions.
+
+\begin{table}[t]\centering
+\caption{Gazebo runs (fixed priority, rulebook, \cb; plus reactive and a proximity-first rulebook in the single-bay sweep).}
+\label{tab:gz}
+\begin{tabular}{@{}lrrrr@{}}\toprule
+Scenario & Runs & Success & Collision & Same yielder as 2D\\\midrule
+Single bay, negotiating & 40 & 40 & 0 & 40\\
+Single bay, reactive & 10 & 8 & 1 & 5\\
+Convoy (2 v 1) & 18 & 18 & 0 & 18\\
+Single bay, 50\% loss, 0.5\,s & 18 & 18 & 0 & 18\\
+T-junction, before fixes & 36 & 10 & 3 & 30\\
+T-junction, after fixes & 36 & 36 & 0 & 36\\\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion and Limitations}
+Three conclusions are robust across our studies. First, communication is cheap insurance: any explicit agreement removes the deadlocks and back-off ``dances'' of the reactive baseline. Second, the right rule depends on what the robots know: cost bidding wins whenever robots differ and their costs are known to within a factor of about 1.6, but it needs payments to be robust to self-interest and group bids to be efficient for convoys. Third, safety under lossy communication needs explicit commitment and a physical check, not just agreement on paper.
+
+The study has clear limits. Results are from simulation, with 2D sweeps of 10--72 runs per condition outside the large studies and one Gazebo run per case; physical TurtleBot3 trials are future work. \cb\ uses the simulator's own motion model. The T-junction is approximated as a deep bay. The group-bid cost underestimates serial convoy yields, and we have no three-robot oracle. The learned baseline is tabular and centrally trained, not deep MARL, and we have not yet evaluated LLM negotiators, which are a natural next agent family for this benchmark~\cite{marlin2024,gamechat2025}.
+
+\section{Conclusion}
+We presented a benchmark for head-on corridor encounters with pull-in bays and used it to compare negotiation policies under identical physics and communication models. Cost bidding approaches the oracle and handles asymmetric robots, VCG transfers make it truthful, a small fairness credit makes it fair, and a decision-commit protocol keeps it safe under extreme packet loss. The simulator, ROS~2 nodes, scenarios, study scripts, and raw results are released to support comparison with learned and language-model negotiators.
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+\end{document}
