@@ -73,6 +73,7 @@ class AgentConfig:
     v_max: float | None = None
     v_rev_max: float | None = None
     start_refuge: str | None = None  # start parked in this refuge, e.g. the stem of a T-junction (a deep bay)
+    known_refuges: list[str] | None = None  # bays this robot knows about (None = all); end rooms always known
     goal_refuge: str | None = None
 
     @property
