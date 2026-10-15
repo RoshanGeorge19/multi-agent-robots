@@ -4,8 +4,23 @@ import argparse
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Collision Avoidance Environment")
+parser.add_argument("--steps", type=int, default=100, help="Number of RL steps to run.")
+parser.add_argument(
+    "--num_envs",
+    type=int,
+    default=None,
+    help="Number of parallel environments (overrides the config default).",
+)
+parser.add_argument(
+    "--video",
+    action="store_true",
+    help="Record videos of training. Requires --enable_cameras when running headless.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
+
+if args_cli.video:
+    args_cli.enable_cameras = True
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -14,84 +29,88 @@ import gymnasium as gym
 from collision_env import CollisionAvoidanceEnv, CollisionEnvRB3Cfg
 import time
 import torch
-from isaaclab.utils import video
 
 
 gym.register(
     id="CollisionAvoidance",
     entry_point="collision_env:CollisionAvoidanceEnv",
+    disable_env_checker=True,
 )
 
-rb3_cfg = CollisionEnvRB3Cfg()
+env_cfg = CollisionEnvRB3Cfg()
 
-env_cfg = CollisionAvoidanceEnv(cfg=rb3_cfg)
+if args_cli.num_envs is not None:
+    env_cfg.scene.num_envs = args_cli.num_envs
 
+# adjust camera resolution and pose
 env_cfg.viewer.resolution = (640, 480)
 env_cfg.viewer.eye = (1.0, 1.0, 1.0)
 env_cfg.viewer.lookat = (0.0, 0.0, 0.0)
 
+# set render mode to rgb_array to obtain images on render calls
 env = gym.make(
     "CollisionAvoidance",
     cfg=env_cfg,
-    render_mode="rgb_array",
+    render_mode="rgb_array" if args_cli.video else None,
 )
 
-video_kwargs = {
-    "video_folder": "videos/train",
-    "step_trigger": lambda step: True, #step % 1500 == 0,
-    "video_length": 100,
-}
-env = gym.wrappers.RecordVideo(env, **video_kwargs)
-
-    # adjust camera resolution and pose
-    # env_cfg.viewer.resolution = (640, 480)
-    # env_cfg.viewer.eye = (1.0, 1.0, 1.0)
-    # env_cfg.viewer.lookat = (0.0, 0.0, 0.0)
-    # # create isaac-env instance
-    # # set render mode to rgb_array to obtain images on render calls
-    # env = gym.make("RB3 Collision Avoidance", cfg=env_cfg, render_mode="rgb_array")
-    # # wrap for video recording
-    # video_kwargs = {
-    #     "video_folder": "videos/train",
-    #     "step_trigger": lambda step: True, # step % 1500 == 0,
-    #     "video_length": 100,
-    # }
-    # env = gym.wrappers.RecordVideo(env, **video_kwargs)
+if args_cli.video:
+    video_kwargs = {
+        "video_folder": "videos/train",
+        "step_trigger": lambda step: True,  # step % 1500 == 0,
+        "video_length": 100,
+    }
+    env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
 
 if __name__ == "__main__":
+    # gymnasium 1.x wrappers do not forward arbitrary attributes -> go through .unwrapped
+    base_env = env.unwrapped
+
     print("Creating environment...")
 
     obs, info = env.reset()
     print("AFTER RESET")
 
-    steps = 100
+    steps = args_cli.steps
 
     start_time = time.perf_counter()
 
     print("training...")
     steps_done = 0
     for step in range(steps):
-        actions = torch.zeros(
-            (
-                env.num_envs,  
-                env.cfg.action_space,
-            ),
-            device=env.device,
-        )
+        # DirectMARLEnv takes a dict of actions keyed by agent id, and the two
+        # robots have different action space sizes.
+        actions = {
+            agent: torch.zeros(
+                (base_env.num_envs, base_env.cfg.action_spaces[agent]),
+                device=base_env.device,
+            )
+            for agent in base_env.possible_agents
+        }
 
+        # terminated / truncated are per-agent dicts of per-env tensors;
+        # DirectMARLEnv resets finished envs itself.
         obs, reward, terminated, truncated, info = env.step(actions)
 
-        if terminated or truncated:
-            obs, info = env.reset()
+        steps_done += 1
 
     elapsed = (time.perf_counter() - start_time)
 
-    simulated_seconds = (steps * env.cfg.decimation * env.cfg.sim.dt)
+    simulated_seconds = (steps * base_env.cfg.decimation * base_env.cfg.sim.dt)
+
+    print()
+    print("Agents:", base_env.possible_agents)
+    for agent in base_env.possible_agents:
+        print(
+            f"  {agent}: obs {base_env.cfg.observation_spaces[agent]}"
+            f"  act {base_env.cfg.action_spaces[agent]}"
+        )
 
     print()
     print("========== BENCHMARK ==========")
-    print(f"Environments:       {env.num_envs}")
+    print(f"Environments:       {base_env.num_envs}")
+    print(f"Agent samples/sec:  {len(base_env.possible_agents) * base_env.num_envs * steps / elapsed:.1f}")
     print(f"Steps:              {steps}")
     print(f"Steps executed      {steps_done}")
     print(f"Simulated time:     {simulated_seconds:.2f} s")
@@ -103,3 +122,4 @@ if __name__ == "__main__":
     )
     print("================================")
     env.close()
+    simulation_app.close()
