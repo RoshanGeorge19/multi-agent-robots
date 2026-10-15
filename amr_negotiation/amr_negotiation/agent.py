@@ -272,6 +272,8 @@ class Agent:
                 self.learn_obstructed(t, msg["blocked"], msg["sender"])
         elif msg["type"] == "BID" and msg["to"] == self.id:
             pid = msg["sender"]
+            if msg.get("known") is not None:  # BIDs repeat the map once the sender may share it (lossy links)
+                self.map_from.add(pid)
             if msg.get("known"):
                 self.learn_refuges(t, msg["known"], pid)
             if msg.get("blocked"):
