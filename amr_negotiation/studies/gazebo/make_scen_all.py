@@ -80,7 +80,8 @@ def main():
         case(f"gz_asym_s{k}", asym, TWO, k, "asym_own")
         case(f"gz_asymshare_s{k}", deep_update(asym, {"agent_params": {"share_map": True}}), TWO, k, "asym_share")
         case(f"gz_2bay35_s{k}", two_bays(k, agent_params={"detect_range": 3.5}), TWO, k, "explore_full_3.5")
-        for tag, ap in (("none", {}), ("all", {"share_map": True}), ("det", {"share_map": True, "share_on_detect": True})):
+        for tag, ap in (("none", {}), ("all", {"share_map": True}), ("det", {"share_map": True, "share_on_detect": True}),
+                        ("hold", {"share_map": True, "share_on_detect": True, "hold_for_map": True})):
             for rng in (6.0, 3.5):
                 case(f"gz_exp{tag}{int(rng * 10)}_s{k}", two_bays(k, agent_params={"explore": True, "detect_range": rng, **ap}),
                      TWO, k, f"explore_{tag}_{rng}")
