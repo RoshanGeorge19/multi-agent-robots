@@ -30,7 +30,7 @@ Notes:
 
 ## Hold variant (branch code, not on main yet)
 
-Recorded on the `hold_for_map` branch, commit `be50818` (image `amrneg:hold-be50818`), same recorder settings.
+Recorded on the `hold_for_map` branch, commit `f5249a6` (image `amrneg:hold-be50818`, built before that branch was rebased; same code), same recorder settings.
 
 | Clip | Scenario | Policy | Seed | Success / collision | Yielder → refuge | Makespan [s] | Batch makespan [s] | Excess vs full map [s] | Time to decision [s] | Hold | What it shows |
 |---|---|---|---|---|---|---|---|---|---|---|---|
