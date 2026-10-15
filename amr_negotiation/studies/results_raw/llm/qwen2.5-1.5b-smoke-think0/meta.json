@@ -1,0 +1,24 @@
+{
+ "tag": "qwen2.5-1.5b-smoke-think0",
+ "model": "qwen2.5-1.5b-instruct-q4_k_m",
+ "base_url": "http://localhost:8080/v1",
+ "server_models": [
+  "/home/ubuntu/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+ ],
+ "n": 10,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_med_raw",
+  "llm_med_plans",
+  "llm_agents_raw",
+  "llm_agents_plans"
+ ],
+ "think": "0",
+ "max_tokens": 256,
+ "constrain": true,
+ "seed0": 100000,
+ "wall_s": 11.203715085983276
+}

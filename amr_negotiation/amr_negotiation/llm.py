@@ -216,7 +216,8 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
     else:
         raise ValueError(f"llm.mode must be mediator or agents, not {cfg['mode']!r}")
 
-    think = sum(c["latency"] for c in calls) if cfg["think_time"] == "measured" else float(cfg["think_time"] or 0.0)
+    think = max((c["latency"] for c in calls), default=0.0) if cfg["think_time"] == "measured" else float(cfg["think_time"] or 0.0)
+    # agents-mode prompts would run on each robot in parallel, so charge the slower call, not the sum
     detail = {"llm_mode": cfg["mode"], "llm_model": cfg["model"], "think_time": think,
               "llm_latency": sum(c["latency"] for c in calls), "llm_cached": all(c["cached"] for c in calls),
               "llm_error": next((c["error"] for c in calls if c["error"]), None),
