@@ -27,3 +27,17 @@ Notes:
   minus the same free-flow times), the corridor clips have +14.6 s (`fixed_priority`) and
   -0.1 s (`cost_bid`). The other clips report makespan only.
 - All clips are under 1 MB; no LFS needed.
+
+## Hold variant (branch code, not on main yet)
+
+Recorded on the `hold_for_map` branch, commit `be50818` (image `amrneg:hold-be50818`), same recorder settings.
+
+| Clip | Scenario | Policy | Seed | Success / collision | Yielder → refuge | Makespan [s] | Batch makespan [s] | Excess vs full map [s] | Time to decision [s] | Hold | What it shows |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `explore_hold35_fixed_priority` | `gz_exphold35_s3`, explore, share on detect + hold, 3.5 m | `fixed_priority` | 3 | yes / no | B → bay1 | 82.6 | 82.4 | +12.8 | 4.75 | released (no timeout) | the same seed as `explore_det35_fixed_priority`: with the hold, B uses bay1 instead of its end room |
+
+- Conflict at 17.00 s, both robots detect each other at 21.65 s, decision at 21.75 s; no `hold_timeout` in the log.
+- Excess is the sum of arrival times minus that of the batch full-map run `gz_2bay35_s3` (fixed priority).
+  It is larger than the batch hold run's +12.5 s for this seed; the clip waits ~4.8 s before deciding.
+- Both robots had sensed both bays themselves (A at 17.75 s, B at 18.45 s) before they detected each other,
+  so here the hold helps by waiting, not through the exchanged map.
