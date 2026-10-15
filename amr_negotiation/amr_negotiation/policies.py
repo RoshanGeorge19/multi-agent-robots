@@ -18,7 +18,7 @@ import yaml
 from .geometry import Scenario
 from .planner import Snapshot, best_plan, feasible, plan_times, refuge_by_id
 
-NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "clarke", "reservation", "forced")
+NEGOTIATING_POLICIES = ("fixed_priority", "rule_based", "cost_bid", "group_bid", "learned", "clarke", "reservation", "forced", "llm")
 ALL_POLICIES = ("reactive",) + NEGOTIATING_POLICIES
 
 
@@ -283,6 +283,10 @@ def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
         return decide_clarke(snaps, sc, policy.get("report_scale"))
     if name == "group_bid":
         return decide_group_bid(snaps, sc, policy.get("objective", "total_delay"))
+    if name == "llm":
+        from .llm import decide_llm
+
+        return decide_llm(snaps, sc, policy)
     if name == "forced":
         a, b = _pair(snaps)
         Y = a if a.id == policy["yielder"] else b

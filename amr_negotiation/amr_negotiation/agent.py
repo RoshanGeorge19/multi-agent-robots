@@ -209,7 +209,7 @@ class Agent:
         n = self.neg
         return {"type": "BID", "sender": self.id, "to": n["peer"], "t": t, "conflict": n["cid"],
                 "snapshot": n["mine"].to_dict(), "have_peer": n["theirs"] is not None,
-                "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") else None,
+                "decision": {"yielder": n["dec"].yielder, "refuge": n["dec"].refuge} if n.get("dec") and t >= n.get("ready", t) else None,
                 "have_dec": n.get("their_dec") is not None,
                 "known": self.known_bays() if self.may_share(n["peer"]) else None,
                 "blocked": sorted(self.obstructed) or None}
@@ -536,13 +536,16 @@ class Agent:
                      if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
             sc = _WithoutRefuges(self.map, taken) if taken else self.map
             d: Decision = decide(self.policy, [n["mine"], n["theirs"]], sc)
-            n["decided"], n["dec"] = t, d
+            think = float(d.detail.get("think_time", 0.0))  # deliberation time (LLM latency), charged in sim time
+            n["decided"], n["dec"], n["ready"] = t + think, d, t + think
             rec = {"t": t, "agent": self.id, "peer": n["peer"], "yielder": d.yielder, "refuge": d.refuge,
                    "rule": d.rule, "t_detect": n["t0"], **{k: v for k, v in d.detail.items() if k != "plan"}}
             if "plan" in d.detail:
                 rec["predicted"] = d.detail["plan"]
             self.decisions.append(rec)
             self.log(t, "decision", yielder=d.yielder, refuge=d.refuge, rule=d.rule)
+        if t < n.get("ready", t):
+            return self.brake()
         d = n["dec"]
         td = n.get("their_dec")
         # commit: act once the peer's decision has arrived (or the commit window expires)

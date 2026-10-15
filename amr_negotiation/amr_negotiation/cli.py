@@ -61,6 +61,7 @@ def run(argv=None) -> dict:
     ap.add_argument("--yielder", help="agent id for policy=forced")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--set", nargs="*", help="scenario overrides, e.g. comms.loss=0.3 bays.0.x=2.5")
+    ap.add_argument("--pset", nargs="*", help="policy parameters, e.g. llm.mode=agents llm.model=qwen2.5-7b")
     ap.add_argument("--json", help="write full result JSON here")
     ap.add_argument("--plot", help="write trajectory + x-t plot (PNG)")
     ap.add_argument("--gif", help="write animation (GIF)")
@@ -71,7 +72,8 @@ def run(argv=None) -> dict:
     if a.policy == "oracle":
         res = run_oracle(sc, seed=a.seed, record=record)
     else:
-        res = run_episode(sc, make_policy(a.policy, a.rulebook, a.yielder), seed=a.seed, record=record)
+        pol = deep_update(make_policy(a.policy, a.rulebook, a.yielder), parse_set(a.pset))
+        res = run_episode(sc, pol, seed=a.seed, record=record)
     for k in SUMMARY_KEYS:
         v = res.get(k)
         print(f"{k:>14}: {round(v, 3) if isinstance(v, float) else v}")
