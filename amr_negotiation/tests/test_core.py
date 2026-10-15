@@ -426,6 +426,16 @@ def test_hold_for_map_decides_after_detection_and_map_exchange():
     assert r["total_delay"] < no_hold["total_delay"]
 
 
+def test_hold_for_map_survives_a_lost_map_message():
+    from amr_negotiation.cli import apply_overrides, parse_set
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml"), parse_set(["comms.loss=0.5"]))
+    sc.agent_params = {"explore": True, "share_map": True, "share_on_detect": True, "hold_for_map": True}
+    for seed in range(5):
+        r = run_episode(sc, {"name": "fixed_priority"}, seed=seed, record=True)
+        assert r["success"] and not r["collision"]
+        assert not any(e["event"] == "hold_timeout" for e in r["events"])  # BIDs repeat the map after detection
+
+
 def test_hold_for_map_timeout_falls_back_to_current_behaviour():
     r = _explore_run(share_on_detect=True, hold_for_map=True, hold_timeout=0.0)
     assert any(e["event"] == "hold_timeout" for e in r["events"])
