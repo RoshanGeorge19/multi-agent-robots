@@ -1,7 +1,7 @@
 """Compare every Gazebo run (gazebo/runs.txt + runs_r2.txt) with a 2D-sim rerun of the same scenario, policy and seed.
 
-Usage: python studies/analyse_gazebo_main.py GZSWEEP_DIR [CODE_LABEL]
-GZSWEEP_DIR is laid out as by gazebo/run_one.sh (out/<label>/<scenario>_*.json). Writes report/gazebo_main_runs.csv
+Usage: python studies/analyse_gazebo_main.py GZSWEEP_DIR [CODE_LABEL [OUT_CSV]]
+GZSWEEP_DIR is laid out as by gazebo/run_one.sh or run_case.sh (out/<label>/<scenario>_*.json). Writes report/OUT_CSV (default gazebo_main_runs.csv)
 and prints a markdown summary per scenario kind and policy.
 """
 
@@ -31,13 +31,47 @@ def yielders(res: dict) -> str:
     return "".join(sorted(i for i, a in res["agents"].items() if a.get("yields")))
 
 
+def shared_before_decision(res: dict) -> bool:
+    """Explore mode: a bay learned from the peer's map before the first yield decision."""
+    ev = res.get("events") or []
+    dec = min((e["t"] for e in ev if e["event"] == "decision"), default=None)
+    sh = [e["t"] for e in ev if e["event"] == "refuge_learned" and e.get("source") not in (None, "sensed")]
+    return bool(sh and dec is not None and min(sh) <= dec)
+
+
+def detect_distance(res: dict):
+    """Explore mode: distance between the robots when the first one sensed the other (from the trace)."""
+    ev = [e for e in res.get("events") or [] if e["event"] == "peer_detected"]
+    tr = res.get("trace") or []
+    if not ev or not tr:
+        return None
+    e = min(ev, key=lambda e: e["t"])
+    row = min(tr, key=lambda r: abs(r["t"] - e["t"]))
+    if e["agent"] not in row or e["peer"] not in row:
+        return None
+    (ax, ay, *_), (bx, by, *_) = row[e["agent"]], row[e["peer"]]
+    return round(math.hypot(ax - bx, ay - by), 2)
+
+
+def first_yielder(res: dict):
+    """The robot that started yielding first. `yielder` is the first logged decision, which is ambiguous when the two
+    robots decide differently in the same tick (asymmetric or partial maps) and the lower id's decision wins."""
+    ys = [e for e in res.get("events") or [] if e["event"] == "yield_start"]
+    return min(ys, key=lambda e: (e["t"], e["agent"]))["agent"] if ys else res.get("yielder")
+
+
+def first_refuge(res: dict):
+    ys = [e for e in res.get("events") or [] if e["event"] == "yield_start"]
+    return min(ys, key=lambda e: (e["t"], e["agent"])).get("refuge") if ys else res.get("refuge")
+
+
 def wilson_upper(k: int, n: int, z: float = 1.96) -> float:
     p = k / n
     return (p + z * z / (2 * n) + z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / (1 + z * z / n)
 
 
 runs = []
-for fname in ("runs.txt", "runs_r2.txt"):
+for fname in () if (G / "runs.txt").exists() else ("runs.txt", "runs_r2.txt"):  # all-study batches list their own runs
     for line in (HERE / "gazebo" / fname).read_text().split("\n"):
         if not line.strip():
             continue
@@ -60,14 +94,23 @@ for k, label, scn, path, policy, grp in runs:
     if not f:
         continue
     g = json.loads(Path(f[0]).read_text())
-    d = sim2d.run_episode(load_scenario(path), policy, seed=k)
+    sc = load_scenario(path)
+    d = sim2d.run_episode(sc, policy, seed=k, record=grp.startswith("explore"))
+    u = {ag.id: ag.urgency for ag in sc.agents}
+    free = {i: a["arrival"] - a["delay"] for i, a in d["agents"].items() if a.get("arrival") is not None}
+    gz_d = (sum(u[i] * (g["agents"][i]["arrival"] - free[i]) for i in u)  # Gazebo delay vs the 2D free-flow time
+            if g["success"] and len(free) == len(u) else None)
+    d2_d = sum(u[i] * d["agents"][i]["delay"] for i in u) if d["success"] else None
     rows.append({
         "code": CODE, "kind": grp, "scenario": scn, "policy": label, "seed": k,
         "gz_success": g["success"], "gz_deadlock": g["deadlock"], "gz_collision": g["collision"],
         "d2_success": d["success"], "d2_deadlock": d["deadlock"], "d2_collision": d["collision"],
-        "gz_yielder": g.get("yielder"), "d2_yielder": d.get("yielder"),
-        "gz_refuge": g.get("refuge"), "d2_refuge": d.get("refuge"),
+        "gz_yielder": first_yielder(g), "d2_yielder": first_yielder(d),
+        "gz_refuge": first_refuge(g), "d2_refuge": first_refuge(d),
         "gz_all_yielders": yielders(g), "d2_all_yielders": yielders(d),
+        "gz_map_first": shared_before_decision(g), "d2_map_first": shared_before_decision(d),
+        "gz_detect_dist": detect_distance(g), "d2_detect_dist": detect_distance(d),
+        "gz_wdelay": None if gz_d is None else round(gz_d, 2), "d2_wdelay": None if d2_d is None else round(d2_d, 2),
         "gz_makespan": round(g["makespan"], 3) if g["success"] else None,
         "d2_makespan": round(d["makespan"], 3) if d["success"] else None,
         "gz_reverse": round(sum(a["reverse_dist"] for a in g["agents"].values()), 3),
@@ -75,7 +118,7 @@ for k, label, scn, path, policy, grp in runs:
         "gz_min_clearance": round(g["min_clearance"], 3),
     })
 
-out = HERE / "report" / "gazebo_main_runs.csv"
+out = HERE / "report" / (sys.argv[3] if len(sys.argv) > 3 else "gazebo_main_runs.csv")
 with out.open("w", newline="") as fh:
     w = csv.DictWriter(fh, fieldnames=list(rows[0]))
     w.writeheader()
