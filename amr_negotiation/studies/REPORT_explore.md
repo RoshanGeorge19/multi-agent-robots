@@ -105,6 +105,32 @@ comparison in `report/gazebo_all_runs.csv`, summary in `report/gazebo_all.md`. D
   equals no sharing (+6.8 s for fixed priority). Sharing in every BID is robust to this.
 - At 6.0 m both simulators agree: share-on-detect is too late and equals no sharing.
 
+## Gazebo with `hold_for_map` (36 runs)
+
+Batch on branch code `be50818` (image `amrneg:hold-be50818`), 2 runs at a time: share on detect + hold at 3.5 m and
+6.0 m, plus a rerun of the six 3.5 m share-on-detect cases, fixed priority and `cost_bid`, seeds 0–5, 0% loss. Raw
+JSONs in `results_raw/gazebo_hold.jsonl.gz`, Gazebo-vs-2D per run in `report/gazebo_hold_runs.csv`
+(`analyse_gazebo_main.py`), table below from `gazebo/analyse_hold.py`. Excess is total delay over the Gazebo
+full-map run (`gz_2bay35_sN` / `gz_2bay_sN`) of the same seed and policy.
+
+| Condition | Range | Policy | Success | Coll. | Yielder's refuge | Excess [s] | Time to decision [s] | Hold timeouts |
+|---|---|---|---|---|---|---|---|---|
+| share on detect (rerun) | 3.5 m | fixed priority | 6/6 | 0 | bay1 ×5, room_hi ×1 | +7.0 | 0.1 | – |
+| share on detect (rerun) | 3.5 m | `cost_bid` | 6/6 | 0 | bay1 ×6 | +0.3 | 0.1 | – |
+| share on detect + hold | 3.5 m | fixed priority | 6/6 | 0 | bay1 ×6 | +10.0 | 4.7 | 0 |
+| share on detect + hold | 3.5 m | `cost_bid` | 6/6 | 0 | bay1 ×6 | +10.1 | 4.7 | 0 |
+| share on detect + hold | 6.0 m | fixed priority | 6/6 | 0 | bay1 ×6 | +10.0 | 9.5 | 0 |
+| share on detect + hold | 6.0 m | `cost_bid` | 6/6 | 0 | bay1 ×6 | +10.0 | 9.5 | 0 |
+
+- **Hold fixes the wrong refuge, not the delay.** The seed-3 fixed-priority case that sent B to its end room
+  (+36 s makespan) now uses bay1, but every hold run waits for lidar detection at 2.3–2.6 m, so it decides 4.7 s
+  (3.5 m) or 9.5 s (6 m) after the conflict starts and finishes 4.7–4.9 s later than the paired 2D hold run.
+  Mean excess is +10 s, worse than plain share-on-detect (+7.0 / +0.3 s). Sharing in every BID is ~0 in both sims.
+- **The map exchange adds little in Gazebo.** When they detect each other, A has sensed both bays itself in 6/6
+  seeds and B in 5/6, so a bay is learned from the peer before the decision in only 1/6 per cell.
+- The share-on-detect rerun reproduces the PR #24 batch (same refuges); one `cost_bid` run (seed 3) picked A as
+  the yielder where 2D picked B, with the same makespan to 0.4 s.
+
 ## Limits
 
 2D and a 6-seed Gazebo subset; discovery is geometric (range only, no wall occlusion); one corridor layout; 30 seeds per cell.
