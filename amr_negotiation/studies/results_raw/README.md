@@ -27,6 +27,7 @@ imported), run the command below and gzip the CSV. Reports: `python studies/anal
 | `S9_payments.csv.gz` | 10080 | 60 | `python studies/run_studies_r2.py OUT` |
 | `reservation.csv.gz` | 1260 | 30 | `python studies/reservation_baseline.py studies` |
 | `explore_map.csv.gz` | 1440 | 30 | `python studies/explore_map.py` (explore-mode branch, after the unified version) |
+| `gazebo_current.jsonl.gz` | 460 | n/a | Gazebo result JSON per run (`batch` `main@bf24bf4`: 122 original cases on main; `all@2ba4c6d`: 338 reduced-grid cases of every study). Runner `studies/gazebo/run_case.sh` with cases from `studies/gazebo/make_scen_all.py`; packed with `python studies/gazebo/pack_raw.py`. Per-run comparison with 2D on the same seed: `report/gazebo_main_runs.csv`, `report/gazebo_all_runs.csv` (`studies/analyse_gazebo_main.py`); summary `report/gazebo_all.md` (`studies/summarise_gazebo.py`). |
 
 **Conventions.**
 - *Success* means every robot reached its goal before the episode timeout without a collision. A *deadlock* is a timeout without a collision. A *collision* is any overlap of the Waffle footprint rectangles.

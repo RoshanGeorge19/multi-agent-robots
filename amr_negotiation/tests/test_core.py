@@ -393,3 +393,17 @@ def test_explore_mode_learns_bays_by_sensing_and_shares_only_after_detection():
     sc.agent_params = {}
     full = run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
     assert not any(e["event"] == "refuge_learned" for e in full["events"])
+
+
+def test_gazebo_world_has_obstacle_in_blocked_bay():
+    from amr_negotiation import gzworld
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    assert gzworld.blocked_bay_poses(sc) == []
+    sc.blocked_bays = ["bay1"]
+    (x, y), = gzworld.blocked_bay_poses(sc)
+    assert x == 7.0 and y < -sc.half_width
+    try:
+        sdf = gzworld.build_world(sc)
+    except FileNotFoundError:
+        pytest.skip("TurtleBot3 waffle model not installed")
+    assert "obstacle_7.00" in sdf

@@ -109,6 +109,10 @@ def _box(name, x, y, z, yaw, sx, sy, sz, rgba):
 ROBOT_COLORS = ["0.15 0.35 0.85 1", "0.95 0.5 0.1 1", "0.2 0.7 0.3 1", "0.8 0.2 0.2 1"]
 
 
+def blocked_bay_poses(sc: Scenario) -> list[tuple[float, float]]:
+    return [(r.x, r.park_y) for r in sc.refuges() if r.id in set(sc.blocked_bays)]
+
+
 def build_world(sc: Scenario, waffle_sdf: str | Path | None = None, overhead_camera: bool = True,
                 camera_size=(1280, 720)) -> str:
     template = Path(waffle_sdf or find_waffle_sdf()).read_text()
@@ -119,6 +123,10 @@ def build_world(sc: Scenario, waffle_sdf: str | Path | None = None, overhead_cam
         y = b["side"] * (sc.half_width + b["depth"] / 2)
         parts.append(_box(f"bay_marker_{k}", b["x"], y, 0.001, 0, b["width"], b["depth"], 0.002,
                           "0.9 0.85 0.3 1").replace("<collision", "<!--c").replace("</collision>", "-->"))
+    for x, y in blocked_bay_poses(sc):  # a pallet the size of a Waffle, as the 2D sim's robot-sized obstacle
+        x0, x1, y0, y1 = sc.robot.footprint
+        parts.append(_box(f"obstacle_{x:.2f}_{y:.2f}", x + (x0 + x1) / 2, y + (y0 + y1) / 2, 0.1, 0,
+                          x1 - x0, y1 - y0, 0.2, "0.55 0.35 0.15 1"))
     robots = []
     for k, a in enumerate(sc.agents):
         x, y, yaw = sc.start_pose(a)

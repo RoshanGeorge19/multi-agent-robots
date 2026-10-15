@@ -16,6 +16,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
 from amr_negotiation.geometry import footprints_overlap, load_scenario
+from amr_negotiation.gzworld import blocked_bay_poses
 
 
 class Referee(Node):
@@ -39,6 +40,7 @@ class Referee(Node):
         self.pose: dict[str, tuple] = {}
         self.min_dist = math.inf
         self.collision_t = None
+        self.obstacles = blocked_bay_poses(self.sc)
         self.gone: set[str] = set()
         self.reverse = {i: 0.0 for i in self.ids}
         self.last_t = {}
@@ -110,6 +112,11 @@ class Referee(Node):
                 if self.collision_t is None and d < 0.6 and footprints_overlap(pa, pb, self.sc.robot.footprint):
                     self.collision_t = t
                     self.get_logger().warn(f"contact at t={t:.2f}s d={d:.3f}")
+        for i in self.ids:
+            if i not in self.gone and self.collision_t is None and any(
+                    footprints_overlap(self.pose[i], (ox, oy, 0.0), self.sc.robot.footprint) for ox, oy in self.obstacles):
+                self.collision_t = t
+                self.get_logger().warn(f"{i} hit the obstacle in a blocked bay at t={t:.2f}s")
         self.trace.append({"t": round(t, 2), **{i: [round(v, 4) for v in self.pose[i]] for i in self.ids}})
         done = set(self.summaries) >= set(self.ids)
         if (done or t > self.t_max) and self.finished_at is None:

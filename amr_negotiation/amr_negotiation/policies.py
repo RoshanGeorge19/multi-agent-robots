@@ -7,9 +7,12 @@ locally once it holds both snapshots; no third message is needed to agree on the
 from __future__ import annotations
 
 import json
+import math
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from .geometry import Scenario
@@ -156,9 +159,18 @@ def yield_bid(Y: Snapshot, P: Snapshot, sc: Scenario, objective: str = "total_de
     return plan["weighted_delay"] if objective == "total_delay" else plan[objective]
 
 
-def decide_cost_bid(snaps, sc, objective: str = "total_delay") -> Decision:
+def noisy(bid: float, Y: Snapshot, sigma: float, seed: int) -> float:
+    """Log-normal estimate error on a bid, fixed per (seed, robot, time to 0.1 s) so both robots see the same value."""
+    if sigma <= 0 or not math.isfinite(bid):
+        return bid
+    h = zlib.crc32(f"{seed}|{Y.id}|{round(Y.t, 1)}".encode())
+    return bid * math.exp(sigma * np.random.default_rng(h).standard_normal())
+
+
+def decide_cost_bid(snaps, sc, objective: str = "total_delay", bid_sigma: float = 0.0, noise_seed: int = 0) -> Decision:
     a, b = _pair(snaps)
     ba, bb = yield_bid(a, b, sc, objective), yield_bid(b, a, sc, objective)
+    ba, bb = noisy(ba, a, bid_sigma, noise_seed), noisy(bb, b, bid_sigma, noise_seed)
     detail = {"bids": {a.id: ba, b.id: bb}}
     if ba == float("inf") and bb == float("inf"):
         return Decision(None, None, None, "cost_bid:infeasible", detail)
@@ -263,7 +275,8 @@ def decide(policy: dict, snaps: list[Snapshot], sc: Scenario) -> Decision:
     if name in ("rule_based", "reservation"):  # reservation falls back to the rulebook once both are inside
         return decide_rulebook(snaps, sc, load_rulebook(policy.get("rulebook")))
     if name == "cost_bid":
-        return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"))
+        return decide_cost_bid(snaps, sc, policy.get("objective", "total_delay"), policy.get("bid_sigma", 0.0),
+                               policy.get("noise_seed", 0))
     if name == "learned":
         return decide_learned(snaps, sc, policy.get("table"))
     if name == "clarke":

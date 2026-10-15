@@ -42,7 +42,8 @@ def setup(context):
     for a in sc.agents:
         actions.append(Node(package="amr_negotiation_ros", executable="agent_node", name=f"agent_{a.id}",
                             parameters=[{**common, "robot_id": a.id, "policy": lc("policy"),
-                                         "rulebook": lc("rulebook"), "seed": int(lc("seed"))}],
+                                         "rulebook": lc("rulebook"), "policy_file": lc("policy_file"),
+                                         "seed": int(lc("seed"))}],
                             output="screen"))
     referee = Node(package="amr_negotiation_ros", executable="referee_node", name="referee",
                    parameters=[{**common, "policy": lc("policy"), "output": str(out / f"{tag}.json")}],
@@ -66,6 +67,7 @@ def generate_launch_description():
         DeclareLaunchArgument("scenario", default_value="/amr_negotiation/scenarios/corridor_single_bay.yaml"),
         DeclareLaunchArgument("policy", default_value="rule_based"),
         DeclareLaunchArgument("rulebook", default_value=""),
+        DeclareLaunchArgument("policy_file", default_value=""),
         DeclareLaunchArgument("seed", default_value="0"),
         DeclareLaunchArgument("record", default_value="false"),
         DeclareLaunchArgument("video_speedup", default_value="4.0"),
