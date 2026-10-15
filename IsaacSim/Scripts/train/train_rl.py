@@ -30,6 +30,13 @@ parser.add_argument(
     help="Path to the skrl agent config (defaults to agents/skrl_ippo_cfg.yaml).",
 )
 parser.add_argument("--checkpoint", type=str, default=None, help="Resume from a checkpoint.")
+parser.add_argument(
+    "--reward_overrides",
+    type=str,
+    default=None,
+    help="JSON file of reward weights to set on the env config (see llm/reward_space.py).",
+)
+parser.add_argument("--run_name", type=str, default=None, help="Log directory name for this run.")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -38,6 +45,8 @@ simulation_app = app_launcher.app
 
 import os
 from datetime import datetime
+
+import json
 
 import gymnasium as gym
 import torch  # noqa: F401  (ensures torch initialises before skrl)
@@ -48,6 +57,7 @@ from skrl.utils.runner.torch import Runner
 from isaaclab_rl.skrl import SkrlVecEnvWrapper
 
 from collision_env import CollisionAvoidanceEnv, CollisionEnvRB3Cfg  # noqa: F401
+from llm.reward_space import apply_overrides
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -69,6 +79,11 @@ def main() -> None:
     env_cfg = CollisionEnvRB3Cfg()
     if args_cli.num_envs is not None:
         env_cfg.scene.num_envs = args_cli.num_envs
+    if args_cli.reward_overrides is not None:
+        with open(args_cli.reward_overrides, encoding="utf-8") as handle:
+            overrides = json.load(handle)
+        apply_overrides(env_cfg, overrides)
+        print(f"Reward overrides: {overrides}")
 
     env = CollisionAvoidanceEnv(cfg=env_cfg)
 
@@ -87,7 +102,7 @@ def main() -> None:
     env = SkrlVecEnvWrapper(env, ml_framework="torch", wrapper="isaaclab")
 
     log_root = os.path.join(HERE, "logs", "skrl", agent_cfg["agent"]["experiment"]["directory"])
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_ippo"
+    run_name = args_cli.run_name or datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_ippo"
     agent_cfg["agent"]["experiment"]["directory"] = log_root
     agent_cfg["agent"]["experiment"]["experiment_name"] = run_name
     print(f"Logging to:   {os.path.join(log_root, run_name)}")

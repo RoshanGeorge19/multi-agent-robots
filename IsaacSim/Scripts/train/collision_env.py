@@ -406,6 +406,26 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._xgo_goal_hits = torch.zeros(self.num_envs, device=self.device)
         self._reached_goal = torch.zeros(self.num_envs, device=self.device)
         self._xgo_reached_goal = torch.zeros(self.num_envs, device=self.device)
+        # Per-step event flags for evaluation, latched in _get_dones. Unlike
+        # collisions_array they survive the reset that follows a termination in
+        # the same step(), so code reading them after step() sees what happened.
+        self.step_events = {
+            name: torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+            for name in ("rover_goal", "xgo_goal", "rover_collision", "xgo_collision", "xgo_fell")
+        }
+
+        # Optional navigation targets, for a high-level planner (llm_coordinator.py).
+        # Where the mask is set, the policy *observes* this target instead of its
+        # goal; rewards, goal-reaching and respawns still use the true goal. Off by
+        # default, so training is unaffected.
+        self.nav_target = {
+            agent: torch.zeros((self.num_envs, 2), device=self.device)
+            for agent in (ROVER_AGENT, XGO_AGENT)
+        }
+        self.nav_override = {
+            agent: torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+            for agent in (ROVER_AGENT, XGO_AGENT)
+        }
 
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
@@ -1044,6 +1064,12 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         gravity_w[:, 2] = -1.0
         return quat_apply_inverse(quat, gravity_w)
 
+    def _observed_goal(self, agent: str, goal_pos: torch.Tensor) -> torch.Tensor:
+        """The goal the policy sees: its true goal, or a planner's nav target."""
+        return torch.where(
+            self.nav_override[agent].unsqueeze(-1), self.nav_target[agent], goal_pos
+        )
+
     def _get_observations(self) -> dict[str, torch.Tensor]:
         # covers reset(), where _get_dones() has not run
         self._update_sensor_state()
@@ -1051,7 +1077,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # ---------------- rover ----------------
         rover_lin = wp.to_torch(self.rover_rb3.data.root_lin_vel_b)[:, 0]
         rover_ang = wp.to_torch(self.rover_rb3.data.root_ang_vel_b)[:, 2]
-        rover_goal_xy, rover_goal_dist = self._goal_in_body_frame(self.rover_rb3, self.goal_pos)
+        rover_goal_xy, rover_goal_dist = self._goal_in_body_frame(
+            self.rover_rb3, self._observed_goal(ROVER_AGENT, self.goal_pos)
+        )
 
         rover_other_xy, rover_other_dist = self._other_robot_in_body_frame(
             self.rover_rb3, self.xgo_lite
@@ -1074,7 +1102,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # Joint-level control needs proprioception: the policy has to sense its own
         # posture and orientation to keep the body up, which a velocity-commanded
         # wheeled base never has to do.
-        xgo_goal_xy, xgo_goal_dist = self._goal_in_body_frame(self.xgo_lite, self.xgo_goal_pos)
+        xgo_goal_xy, xgo_goal_dist = self._goal_in_body_frame(
+            self.xgo_lite, self._observed_goal(XGO_AGENT, self.xgo_goal_pos)
+        )
         xgo_other_xy, xgo_other_dist = self._other_robot_in_body_frame(
             self.xgo_lite, self.rover_rb3
         )
@@ -1212,7 +1242,14 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._respawn_reached_goals(rover_dist, xgo_dist)
 
         rover_terminated = self.collisions_array
-        xgo_terminated = self.xgo_collisions | self._xgo_has_fallen()
+        xgo_fell = self._xgo_has_fallen()
+        xgo_terminated = self.xgo_collisions | xgo_fell
+
+        self.step_events["rover_goal"][:] = self._reached_goal.bool()
+        self.step_events["xgo_goal"][:] = self._xgo_reached_goal.bool()
+        self.step_events["rover_collision"][:] = self.collisions_array
+        self.step_events["xgo_collision"][:] = self.xgo_collisions
+        self.step_events["xgo_fell"][:] = xgo_fell
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
@@ -1246,9 +1283,9 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         """Give a robot a fresh goal when it reaches its current one."""
         origins = self.scene.env_origins[:, :2]
 
-        for reached, goal_pos, previous, robot in (
-            (rover_dist < GOAL_REACHED_RADIUS, self.goal_pos, self.previous_distance, self.rover_rb3),
-            (xgo_dist < GOAL_REACHED_RADIUS, self.xgo_goal_pos, self.xgo_previous_distance, self.xgo_lite),
+        for agent, reached, goal_pos, previous, robot in (
+            (ROVER_AGENT, rover_dist < GOAL_REACHED_RADIUS, self.goal_pos, self.previous_distance, self.rover_rb3),
+            (XGO_AGENT, xgo_dist < GOAL_REACHED_RADIUS, self.xgo_goal_pos, self.xgo_previous_distance, self.xgo_lite),
         ):
             if not bool(reached.any()):
                 continue
@@ -1260,6 +1297,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
                 pos, self._sample_spawn(len(env_ids)), MIN_SPAWN_GOAL_DISTANCE
             )
             goal_pos[env_ids] = fresh + origins[env_ids]
+            # a planner's waypoint was for the old goal
+            self.nav_override[agent][env_ids] = False
 
             # reseed the progress baseline, or the jump to a distant goal reads as
             # a large negative step in the progress reward
@@ -1348,6 +1387,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._xgo_episode_start_pos[env_ids] = xgo_spawn + origins
         self._goal_hits[env_ids] = 0.0
         self._xgo_goal_hits[env_ids] = 0.0
+        for override in self.nav_override.values():
+            override[env_ids] = False
         self._xgo_joint_targets[env_ids] = self._xgo_stance_joints[env_ids]
         self._xgo_prev_loco_actions[env_ids] = 0.0
         self.xgo_gait.reset(env_ids)
