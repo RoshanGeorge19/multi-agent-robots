@@ -377,3 +377,19 @@ def test_reservation_waits_outside_while_corridor_is_held():
     r = run_episode(sc, {"name": "reservation"}, seed=0)
     assert r["success"] and not r["collision"]
     assert r["yielder"] == "B" and r["rule"] == "reservation" and r["refuge"] == "room_hi"
+
+
+def test_explore_mode_learns_bays_by_sensing_and_shares_only_after_detection():
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc.agent_params = {"explore": True, "share_map": True, "share_on_detect": True}
+    r = run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
+    assert r["success"] and not r["collision"]
+    ev = r["events"]
+    sensed = [e for e in ev if e["event"] == "refuge_learned" and e["source"] == "sensed"]
+    assert {e["agent"] for e in sensed} == {"A", "B"}
+    det = {(e["agent"], e["peer"]): e["t"] for e in ev if e["event"] == "peer_detected"}
+    shared = [e for e in ev if e["event"] == "refuge_learned" and e["source"] != "sensed"]
+    assert shared and all(e["t"] >= det[(e["source"], e["agent"])] for e in shared)
+    sc.agent_params = {}
+    full = run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
+    assert not any(e["event"] == "refuge_learned" for e in full["events"])

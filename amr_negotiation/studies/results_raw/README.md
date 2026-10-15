@@ -26,6 +26,7 @@ imported), run the command below and gzip the CSV. Reports: `python studies/anal
 | `S8c_protocol_ablation.csv.gz` | 5760 | 20 | `python studies/run_studies_r2.py OUT S8c_protocol_ablation` |
 | `S9_payments.csv.gz` | 10080 | 60 | `python studies/run_studies_r2.py OUT` |
 | `reservation.csv.gz` | 1260 | 30 | `python studies/reservation_baseline.py studies` |
+| `explore_map.csv.gz` | 1440 | 30 | `python studies/explore_map.py` (explore-mode branch, after the unified version) |
 
 **Conventions.**
 - *Success* means every robot reached its goal before the episode timeout without a collision. A *deadlock* is a timeout without a collision. A *collision* is any overlap of the Waffle footprint rectangles.
