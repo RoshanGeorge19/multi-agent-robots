@@ -404,6 +404,8 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._xgo_episode_start_pos = torch.zeros((self.num_envs, 2), device=self.device)
         self._goal_hits = torch.zeros(self.num_envs, device=self.device)
         self._xgo_goal_hits = torch.zeros(self.num_envs, device=self.device)
+        self._reached_goal = torch.zeros(self.num_envs, device=self.device)
+        self._xgo_reached_goal = torch.zeros(self.num_envs, device=self.device)
 
         # self.rover_rb3_controller = DifferentialController(wheel_radius=0.038, wheel_base=0.095) # apparently uses CPU and not GPU
         self.wheel_radius = 0.038
@@ -1113,7 +1115,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         # weights in this project have already been set by analogy and found wrong
         # only after a full training run; measuring beats guessing.
         terms = {
-            "goal": (rover_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal,
+            "goal": self._reached_goal * self.cfg.rew_reach_goal,
             "progress": self.cfg.rew_gets_closer_to_goal
             * (self.previous_distance - rover_dist),
             "collision": self.collisions_array.float() * self.cfg.rew_wall_collision,
@@ -1124,8 +1126,15 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
             "robot_proximity": robot_proximity,
             "step": step_rew,
         }
-        self._reward_terms = terms
         rover_reward = sum(terms.values())
+
+        # Logged here, every step. Publishing these from _log_episode_diagnostics
+        # instead sampled them only on steps where an episode ended -- which are
+        # collision steps -- so the goal term always read 0.0 even while goals were
+        # being reached on other steps.
+        log = self.extras.setdefault("log", {})
+        for name, value in terms.items():
+            log[f"reward_terms/{name}"] = value.mean()
         self.previous_distance = rover_dist
 
         # ---------------- XGO ----------------
@@ -1142,7 +1151,7 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         self._prev_xgo_actions = self.actions[XGO_AGENT].clone()
 
         xgo_reward = (
-            (xgo_dist < GOAL_REACHED_RADIUS).float() * self.cfg.rew_reach_goal
+            self._xgo_reached_goal * self.cfg.rew_reach_goal
             + self.cfg.rew_gets_closer_to_goal * (self.xgo_previous_distance - xgo_dist)
             + self.xgo_collisions.float() * self.cfg.rew_wall_collision
             + self._proximity(self.xgo_nearest_wall, self.cfg.wall_proximity_distance)
@@ -1192,6 +1201,14 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         #
         # Now an improving rover *lengthens* episodes rather than truncating them,
         # and both robots get repeated attempts within one episode.
+        # Latch *before* respawning. _get_dones runs ahead of _get_rewards, so
+        # once the goal has moved the reward function can no longer tell that it
+        # was reached: it recomputes the distance against the new goal and pays
+        # nothing. Measured, that zeroed the goal term while the goal rate was
+        # 0.43 per episode.
+        self._reached_goal = (rover_dist < GOAL_REACHED_RADIUS).float()
+        self._xgo_reached_goal = (xgo_dist < GOAL_REACHED_RADIUS).float()
+
         self._respawn_reached_goals(rover_dist, xgo_dist)
 
         rover_terminated = self.collisions_array
@@ -1266,16 +1283,13 @@ class CollisionAvoidanceEnv(DirectMARLEnv):
         rover_net = torch.linalg.vector_norm(rover_pos - self._episode_start_pos, dim=-1)
         xgo_net = torch.linalg.vector_norm(xgo_pos - self._xgo_episode_start_pos, dim=-1)
 
-        self.extras["log"] = {
-            **{
-                f"reward_terms/{name}": value.mean()
-                for name, value in getattr(self, "_reward_terms", {}).items()
-            },
+        log = self.extras.setdefault("log", {})
+        log.update({
             "diagnostics/rover_goal_rate": self._goal_hits[done].mean(),
             "diagnostics/xgo_goal_rate": self._xgo_goal_hits[done].mean(),
             "diagnostics/rover_net_displacement": rover_net[done].mean(),
             "diagnostics/xgo_net_displacement": xgo_net[done].mean(),
-        }
+        })
 
     # -------------------------------------------------------------------------
     # Reset
