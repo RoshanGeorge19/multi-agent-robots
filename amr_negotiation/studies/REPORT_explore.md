@@ -77,7 +77,7 @@ byte-for-byte the same values as before. All 360 hold episodes succeeded, 0 coll
   while they hold and decide from closer positions. The cost is time to decision: about 5 s instead of 0.1–0.3 s.
 - **At 3.5 m and 50% loss it removes share-on-detect's +1.7 s**, because the map no longer rides on one MAP message.
 - An earlier version waited for the one-shot MAP only; at 50% loss 20–24 of 30 episodes per cell then hit the
-  timeout and `cost_bid` lost up to +34 s. Counting a BID that carries the map fixed it (commit `be50818`).
+  timeout and `cost_bid` lost up to +34 s. Counting a BID that carries the map fixed it (commit `f5249a6`).
 - The "map in time" column of `report/explore_map.md` counts bays *learned* from the peer before the decision.
   With hold it reads 19/30 at 6 m, 50% loss, because by the time it decides a robot has often sensed the
   peer's bay itself, so the exchange teaches it nothing new.
@@ -107,7 +107,7 @@ comparison in `report/gazebo_all_runs.csv`, summary in `report/gazebo_all.md`. D
 
 ## Gazebo with `hold_for_map` (36 runs)
 
-Batch on branch code `be50818` (image `amrneg:hold-be50818`), 2 runs at a time: share on detect + hold at 3.5 m and
+Batch on branch code `f5249a6` (built as image `amrneg:hold-be50818` before a rebase onto main; same code), 2 runs at a time: share on detect + hold at 3.5 m and
 6.0 m, plus a rerun of the six 3.5 m share-on-detect cases, fixed priority and `cost_bid`, seeds 0–5, 0% loss. Raw
 JSONs in `results_raw/gazebo_hold.jsonl.gz`, Gazebo-vs-2D per run in `report/gazebo_hold_runs.csv`
 (`analyse_gazebo_main.py`), table below from `gazebo/analyse_hold.py`. Excess is total delay over the Gazebo
