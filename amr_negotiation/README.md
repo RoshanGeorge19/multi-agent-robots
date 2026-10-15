@@ -36,6 +36,7 @@ Scenario files are in `scenarios/*.yaml`. Any field can be overridden from the C
 | `rule_based` | state exchange | An ordered rulebook (YAML, see below). The first rule that tells the robots apart decides, and the log records which rule it was. |
 | `cost_bid` | state + bids | Each robot bids its cost of yielding (predicted total delay for the best feasible refuge). The lower bid yields. |
 | `forced` | state exchange | A named robot yields. This policy is used by the oracle. |
+| `llm` | state exchange | A local or remote LLM (OpenAI-compatible, e.g. llama.cpp) picks the yielder, either as a mediator or as one prompt per robot. On server errors, bad JSON or disagreement it falls back to the rulebook. See [docs/llm_local.md](docs/llm_local.md). |
 | `oracle` | — | Hindsight baseline: simulates each possible yielder and keeps the best outcome |
 
 Both robots run the same deterministic decision function on the same pair of snapshots, so they agree without
@@ -124,4 +125,4 @@ docker/               Dockerfile + entrypoint
   within lidar range). Gazebo adds real contact physics, wheel dynamics and lidar noise.
 - The agent uses ground-truth pose in Gazebo. Swapping in AMCL or SLAM localisation is a natural robustness study.
 - The protocol is pairwise. Conflicts among three or more robots, junctions and doorways are planned variations.
-- Other policies to add: auctions, LLM-agent negotiation, and MARL. Scenario variations: heterogeneous robots (Burger vs Waffle), adversarial or selfish agents.
+- Other policies to add: auctions, multi-turn LLM dialogue over the comms channel, and MARL. Scenario variations: heterogeneous robots (Burger vs Waffle), adversarial or selfish agents.
