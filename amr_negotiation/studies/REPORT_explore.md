@@ -53,6 +53,35 @@ Extra delay is paired per seed against `full` with the same policy, loss and ran
 So "share only on detection" works only when detection happens before the decision. With a radio range larger
 than the sensor range, a robot should either share in its first BID or wait for detection before deciding.
 
+## Hold the decision until the map exchange (`hold_for_map`)
+
+`hold_for_map: true` (with `share_map` and `share_on_detect`; off by default) makes a robot that has started a
+negotiation keep driving along its lane, undecided, until its own lidar has detected the peer **and** it has the
+peer's map (a MAP message, or a BID that carries `known`, which BIDs do once the sender has detected us). Its BID
+snapshot is refreshed while it holds. After `hold_timeout` (15 s) without both, it logs `hold_timeout` and decides
+as before. Time to decision is first `decision` minus first `conflict_detected`.
+
+Rerun of the full grid with the hold arm: 1,800 episodes; the 1,440 rows of the four existing conditions are
+byte-for-byte the same values as before. All 360 hold episodes succeeded, 0 collisions, 0 hold timeouts.
+
+| Range | Loss | No share | Share on detect | Share on detect + hold | Share every BID | Time to decision, hold / others [s] |
+|---|---|---|---|---|---|---|
+| 6.0 m | 0% | +29.2 / +8.8 | +29.2 / +8.8 | **−0.4 / −0.4** | +0.0 / +0.0 | 4.9 / 0.1 |
+| 6.0 m | 50% | +29.0 / +8.7 | +29.0 / +8.7 | **−0.5 / −0.5** | +0.0 / +0.0 | 5.5 / 0.3 |
+| 3.5 m | 0% | +5.8 / +0.2 | +0.0 / +0.0 | +0.0 / +0.0 | +0.0 / +0.0 | 0.1 / 0.1 |
+| 3.5 m | 50% | +4.5 / +0.3 | +1.7 / +0.3 | +0.1 / +0.1 | +0.0 / +0.0 | 0.2 / 0.2 |
+
+(Excess over the full map, fixed priority / `cost_bid`; the rulebook is within 0.1 s of fixed priority in every hold cell.)
+
+- **Holding recovers the full-map result at 6 m**, and is 0.4–0.5 s better, because the robots keep driving
+  while they hold and decide from closer positions. The cost is time to decision: about 5 s instead of 0.1–0.3 s.
+- **At 3.5 m and 50% loss it removes share-on-detect's +1.7 s**, because the map no longer rides on one MAP message.
+- An earlier version waited for the one-shot MAP only; at 50% loss 20–24 of 30 episodes per cell then hit the
+  timeout and `cost_bid` lost up to +34 s. Counting a BID that carries the map fixed it (commit `be50818`).
+- The "map in time" column of `report/explore_map.md` counts bays *learned* from the peer before the decision.
+  With hold it reads 19/30 at 6 m, 50% loss, because by the time it decides a robot has often sensed the
+  peer's bay itself, so the exchange teaches it nothing new.
+
 ## Gazebo (current code, 84 runs)
 
 Same two-bay layout, seeds 0–5 (6 per cell), fixed priority and `cost_bid`, 0% loss: `full` (3.5 m), no share,
