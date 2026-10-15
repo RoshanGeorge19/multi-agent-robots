@@ -395,6 +395,53 @@ def test_explore_mode_learns_bays_by_sensing_and_shares_only_after_detection():
     assert not any(e["event"] == "refuge_learned" for e in full["events"])
 
 
+def _explore_run(seed=0, **params):
+    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc.agent_params = {"explore": True, "share_map": True, "detect_range": 6.0, **params}
+    return run_episode(sc, {"name": "fixed_priority"}, seed=seed, record=True)
+
+
+def _key(r):
+    return r["success"], r["collision"], r["total_delay"], [(d["t"], d["agent"], d["yielder"]) for d in r["decisions"]]
+
+
+def test_hold_for_map_is_off_by_default_and_needs_share_on_detect():
+    from amr_negotiation.agent import AgentParams
+    assert AgentParams().hold_for_map is False
+    r = _explore_run(share_on_detect=True)
+    det = {(e["agent"], e["peer"]): e["t"] for e in r["events"] if e["event"] == "peer_detected"}
+    assert r["decisions"][0]["t"] < min(det.values())  # current behaviour: decide on the radio, before sensing
+    assert _key(_explore_run(hold_for_map=True)) == _key(_explore_run())  # share every BID: flag has no effect
+
+
+def test_hold_for_map_decides_after_detection_and_map_exchange():
+    r = _explore_run(share_on_detect=True, hold_for_map=True)
+    assert r["success"] and not r["collision"]
+    ev = r["events"]
+    assert not any(e["event"] == "hold_timeout" for e in ev)
+    det = {(e["agent"], e["peer"]): e["t"] for e in ev if e["event"] == "peer_detected"}
+    for d in r["decisions"]:
+        assert d["t"] >= det[(d["agent"], d["peer"])] and d["t"] >= det[(d["peer"], d["agent"])]
+    no_hold = _explore_run(share_on_detect=True)
+    assert r["total_delay"] < no_hold["total_delay"]
+
+
+def test_hold_for_map_survives_a_lost_map_message():
+    from amr_negotiation.cli import apply_overrides, parse_set
+    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml"), parse_set(["comms.loss=0.5"]))
+    sc.agent_params = {"explore": True, "share_map": True, "share_on_detect": True, "hold_for_map": True}
+    for seed in range(5):
+        r = run_episode(sc, {"name": "fixed_priority"}, seed=seed, record=True)
+        assert r["success"] and not r["collision"]
+        assert not any(e["event"] == "hold_timeout" for e in r["events"])  # BIDs repeat the map after detection
+
+
+def test_hold_for_map_timeout_falls_back_to_current_behaviour():
+    r = _explore_run(share_on_detect=True, hold_for_map=True, hold_timeout=0.0)
+    assert any(e["event"] == "hold_timeout" for e in r["events"])
+    assert _key(r) == _key(_explore_run(share_on_detect=True))
+
+
 def test_gazebo_world_has_obstacle_in_blocked_bay():
     from amr_negotiation import gzworld
     sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")

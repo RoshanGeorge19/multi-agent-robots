@@ -35,6 +35,9 @@ class AgentParams:
     neg_timeout: float = 3.0
     share_map: bool = False  # BIDs carry the sender's known bays; the receiver adds them before deciding
     share_on_detect: bool = False  # with share_map: send our map only once our own sensor has detected that robot
+    hold_for_map: bool = False  # with share_on_detect: keep driving, undecided, until our sensor has detected the
+    # peer and its MAP has arrived (or hold_timeout), so the decision uses the exchanged maps
+    hold_timeout: float = 15.0
     explore: bool = False  # start without bays (unless known_refuges is given) and add each bay once it is within lidar range
     commit: bool = True  # wait for the peer's decision (or neg_timeout) before acting; False: act on our own at once
     state_guard: bool = True  # STATE messages expose a peer yielding into our bay / to us, and we proceed instead
@@ -64,6 +67,7 @@ class Agent:
         self.unknown = set() if known is None else {
             r.id for r in sc.refuges() if r.kind == "bay" and r.id not in known}
         self.detected: set[str] = set()  # peers our own sensor has seen (not just heard on the radio)
+        self.map_from: set[str] = set()  # peers whose MAP message we have received
         self.obstructed: set[str] = set()  # bays found physically obstructed (on the map, but unusable)
         self.map = _WithoutRefuges(sc, self.unknown) if self.unknown else sc
         self.goal_ref = refuge_by_id(sc, cfg.goal_refuge) if cfg.goal_refuge else None
@@ -262,11 +266,14 @@ class Agent:
         if msg["type"] == "STATE":
             self.peers[msg["sender"]] = {**msg, "_rx": t}
         elif msg["type"] == "MAP" and msg.get("to") == self.id:
+            self.map_from.add(msg["sender"])
             self.learn_refuges(t, msg.get("known") or [], msg["sender"])
             if msg.get("blocked"):
                 self.learn_obstructed(t, msg["blocked"], msg["sender"])
         elif msg["type"] == "BID" and msg["to"] == self.id:
             pid = msg["sender"]
+            if msg.get("known") is not None:  # BIDs repeat the map once the sender may share it (lossy links)
+                self.map_from.add(pid)
             if msg.get("known"):
                 self.learn_refuges(t, msg["known"], pid)
             if msg.get("blocked"):
@@ -277,7 +284,7 @@ class Agent:
                 else:
                     return
             n = self.neg
-            if n["theirs"] is None:
+            if n["theirs"] is None or (n.get("dec") is None and self.holds()):
                 n["theirs"] = Snapshot.from_dict(msg["snapshot"])
             if msg["have_peer"]:
                 n["acked"] = True
@@ -285,6 +292,20 @@ class Agent:
                 n["their_dec"] = msg["decision"]
             if msg.get("have_dec"):
                 n["dec_acked"] = True
+
+    def holds(self) -> bool:
+        return self.p.hold_for_map and self.p.share_map and self.p.share_on_detect
+
+    def holding(self, t, n) -> bool:
+        """hold_for_map: postpone the decision until we have sensed the peer and received its map."""
+        if not self.holds() or (n["peer"] in self.detected and n["peer"] in self.map_from):
+            return False
+        if t - n["t0"] < self.p.hold_timeout:
+            return True
+        if not n.get("hold_timeout"):
+            n["hold_timeout"] = True
+            self.log(t, "hold_timeout", peer=n["peer"])
+        return False
 
     def can_renegotiate(self, pid) -> bool:
         """A proceeding robot that has been released past its yielder may negotiate with a new oncoming robot."""
@@ -531,6 +552,10 @@ class Agent:
                 self.neg, self.mode = None, "CRUISE"
                 self.fallback_reactive = True
             return self.brake()
+        if n.get("dec") is None and self.holding(t, n):
+            n["mine"] = self.snapshot(t, pose)
+            v, w, _ = self.lane_cmd(pose, self.goal_x)
+            return self.safe_v(pose, perc.points, v), w
         if n.get("dec") is None:
             taken = {r.id for r in self.map.refuges()
                      if r.kind == "bay" and self.refuge_taken(t, r, perc, ignore=n["peer"])}
