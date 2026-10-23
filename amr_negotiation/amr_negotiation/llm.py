@@ -44,7 +44,8 @@ def _cfg(policy: dict) -> dict:
     c.setdefault("base_url", os.environ.get("AMRNEG_LLM_URL", "http://localhost:8080/v1"))
     c.setdefault("model", os.environ.get("AMRNEG_LLM_MODEL", "local"))
     for k, v in (("mode", "mediator"), ("info", "raw"), ("temperature", 0.0), ("seed", 0), ("max_tokens", 256),
-                 ("timeout", 120.0), ("constrain", True), ("think_time", "measured"), ("cache", None)):
+                 ("timeout", 120.0), ("constrain", True), ("think_time", "measured"), ("cache", None),
+                 ("vision", "none"), ("extra_body", None), ("tiebreak", "")):
         c.setdefault(k, v)
     return c
 
@@ -78,23 +79,30 @@ def chat(cfg: dict, messages: list[dict], schema: dict) -> dict:
             "max_tokens": cfg["max_tokens"]}
     if cfg["constrain"]:
         body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}}
+    if cfg["extra_body"]:
+        body.update(cfg["extra_body"])
     key = hashlib.sha256(json.dumps([cfg["base_url"], body], sort_keys=True).encode()).hexdigest()
     _load_cache(cfg["cache"])
     if key in _MEM:
         e = _MEM[key]
-        return {"text": e["text"], "latency": e["latency"], "cached": True, "error": None}
+        return {"text": e["text"], "latency": e["latency"], "reasoning": e.get("reasoning", ""),
+                "cached": True, "error": None}
     t0 = time.perf_counter()
     try:
         r = post_json(cfg["base_url"].rstrip("/") + "/chat/completions", body, cfg["timeout"])
-        text = r["choices"][0]["message"]["content"] or ""
+        msg = r["choices"][0]["message"]
+        text = msg.get("content") or ""
+        reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
     except (urllib.error.URLError, OSError, KeyError, IndexError, ValueError) as ex:
-        return {"text": "", "latency": time.perf_counter() - t0, "cached": False, "error": f"{type(ex).__name__}: {ex}"}
-    e = {"key": key, "text": text, "latency": time.perf_counter() - t0, "model": cfg["model"]}
+        return {"text": "", "reasoning": "", "latency": time.perf_counter() - t0, "cached": False,
+                "error": f"{type(ex).__name__}: {ex}"}
+    e = {"key": key, "text": text, "reasoning": reasoning, "latency": time.perf_counter() - t0,
+         "model": cfg["model"]}
     _MEM[key] = e
     if cfg["cache"]:
         with open(cfg["cache"], "a") as f:
             f.write(json.dumps({**e, "messages": messages}) + "\n")
-    return {**{k: e[k] for k in ("text", "latency")}, "cached": False, "error": None}
+    return {**{k: e[k] for k in ("text", "latency", "reasoning")}, "cached": False, "error": None}
 
 
 def parse(text: str) -> dict | None:
@@ -150,6 +158,77 @@ def situation(a: Snapshot, b: Snapshot, sc: Scenario, info: str) -> str:
     return "\n".join(lines)
 
 
+def render_scene(a: Snapshot, b: Snapshot, sc: Scenario) -> str:
+    """Top-down PNG of the encounter as a data URL (used by llm.vision != 'none')."""
+    import base64
+    import io
+
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+
+    from .viz import COLORS, draw_map
+
+    fig, ax = plt.subplots(figsize=(10, 3.4))
+    draw_map(ax, sc)
+    for k, s in enumerate((a, b)):
+        y = -0.09 if k == 0 else 0.09  # small offset so both discs stay visible
+        ax.add_patch(Circle((s.x, y), sc.robot.radius, fc=COLORS[k % 5], alpha=0.65, ec="k"))
+        ax.arrow(s.x, y, 0.45 * s.dir, 0.0, head_width=0.07, head_length=0.12,
+                 fc="k", length_includes_head=True)
+        ax.annotate(f"{s.id} (u={s.urgency:g}{', loaded' if s.loaded else ''})",
+                    (s.x, y + (0.5 if k else -0.5)), ha="center", fontsize=8)
+        ax.plot(s.goal_x, y, marker="*", ms=13, color=COLORS[k % 5], mec="k")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+_IMG_LEGEND = (" The image is a top-down map of the same encounter: the corridor and its refuges "
+               "(x marks are parking poses), each robot is a coloured disc (the first robot listed is "
+               "blue, the second is orange) with a black arrow showing its heading, and the matching "
+               "star is its goal. Numbers in the text are authoritative if they disagree.")
+
+_EGO_LEGEND = (" The image is your own forward view from your onboard camera: the corridor and its "
+               "refuges (x marks are parking poses), you are the blue disc with a black heading arrow, "
+               "the star is your goal, and the orange disc is the other robot if it is in view.")
+
+
+def render_ego(me: Snapshot, other: Snapshot, sc: Scenario) -> str:
+    """Egocentric corridor view for one robot (vision='ego'): centred on me, ~7 m field ahead."""
+    import base64
+    import io
+
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+
+    from .viz import COLORS, draw_map
+
+    fig, ax = plt.subplots(figsize=(10, 3.4))
+    draw_map(ax, sc)
+    for s, k in ((me, 0), (other, 1)):
+        ax.add_patch(Circle((s.x, 0.0), sc.robot.radius, fc=COLORS[k % 5], alpha=0.65, ec="k"))
+        ax.arrow(s.x, 0.0, 0.45 * s.dir, 0.0, head_width=0.07, head_length=0.12,
+                 fc="k", length_includes_head=True)
+        ax.annotate(s.id, (s.x, 0.5), ha="center", fontsize=8)
+    ax.plot(me.goal_x, 0.0, marker="*", ms=13, color=COLORS[0], mec="k")
+    lo, hi = sorted((me.x - 1.5, me.x + me.dir * 6.5))  # mostly forward view
+    ax.set_xlim(lo, hi)
+    ax.set_title(f"{me.id} onboard view", fontsize=9)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _content(q: str, sc: Scenario, vision: str, img: str | None):
+    if vision == "none" or img is None:
+        return q
+    legend = _EGO_LEGEND if vision == "ego" else _IMG_LEGEND
+    return [{"type": "text", "text": q + legend},
+            {"type": "image_url", "image_url": {"url": img}}]
+
+
 def _ids_schema(ids, refs, key, values):
     return {"type": "object", "properties": {"reason": {"type": "string", "maxLength": 300},
                                             key: {"type": "string", "enum": list(values)},
@@ -157,20 +236,47 @@ def _ids_schema(ids, refs, key, values):
             "required": ["reason", key, "refuge"]}
 
 
-def mediator_messages(a: Snapshot, b: Snapshot, sc: Scenario, info: str):
-    q = (situation(a, b, sc, info) + "\n\nDecide which robot yields so that the urgency-weighted total delay of both "
+def mediator_messages(a: Snapshot, b: Snapshot, sc: Scenario, info: str, vision: str = "none"):
+    desc = "" if vision == "only" else situation(a, b, sc, info) + "\n\n"
+    q = (desc + "Decide which robot yields so that the urgency-weighted total delay of both "
          "robots is as small as possible. Reply as JSON: "
          '{"reason": "<one sentence>", "yielder": "<robot id>", "refuge": "<refuge id, or any>"}')
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": q}]
+    img = render_scene(a, b, sc) if vision != "none" else None
+    return [{"role": "system", "content": SYSTEM},
+            {"role": "user", "content": _content(q, sc, vision, img)}]
 
 
-def agent_messages(me: Snapshot, other: Snapshot, sc: Scenario, info: str):
+def _draws(a: Snapshot, b: Snapshot) -> dict:
+    """Each robot's card: a hash bound to its id and this encounter's detection time.
+    Computed identically by both sides from broadcast data — fair draw, no spoofing."""
+    enc = f"{a.id}|{b.id}|{a.t:.3f}"
+    return {s.id: int(hashlib.sha256(f"{s.id}|{enc}".encode()).hexdigest()[:16], 16)
+            for s in (a, b)}
+
+
+def agent_messages(me: Snapshot, other: Snapshot, sc: Scenario, info: str, vision: str = "none",
+                   tiebreak: str = "", draws: dict | None = None):
     a, b = sorted((me, other), key=lambda s: s.id)
-    q = (f"You are robot {me.id}. Robot {other.id} has broadcast its state to you.\n" + situation(a, b, sc, info) +
+    desc = "" if vision == "only" else situation(a, b, sc, info)
+    q = (f"You are robot {me.id}. Robot {other.id} has broadcast its state to you.\n" + desc +
          f"\n\nShould you ({me.id}) yield, or proceed and let {other.id} yield? Aim to keep the urgency-weighted "
-         "total delay of both robots small; if you both proceed or both yield, a fixed rulebook decides instead. "
+         "total delay of both robots small; if you both proceed or both yield, a fixed rulebook decides instead. ")
+    if tiebreak == "nonce" and draws:
+        q = q.replace("a fixed rulebook decides instead. ",
+                      "the draw decides instead. ")
+        q += ("Draw rule: each robot holds a card — a random value bound to its id and this encounter "
+              f"that neither can choose: yours is {draws[me.id]}, {other.id}'s is {draws[other.id]}. "
+              "If actions conflict (both yield or both proceed), the robot with the LARGER card proceeds. ")
+    q += (
          'Reply as JSON: {"reason": "<one sentence>", "action": "yield" or "proceed", "refuge": "<refuge id, or any>"}')
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": q}]
+    if vision == "ego":
+        img = render_ego(me, other, sc)
+    elif vision != "none":
+        img = render_scene(a, b, sc)
+    else:
+        img = None
+    return [{"role": "system", "content": SYSTEM},
+            {"role": "user", "content": _content(q, sc, vision, img)}]
 
 
 # ---------------------------------------------------------------- decision
@@ -191,9 +297,10 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
     cfg = _cfg(policy)
     a, b = sorted(snaps, key=lambda s: s.id)
     refs = [r.id for r in sc.refuges()]
-    calls, choice = [], {}
+    calls, choice, tiebroken = [], {}, False
     if cfg["mode"] == "mediator":
-        r = chat(cfg, mediator_messages(a, b, sc, cfg["info"]), _ids_schema([a.id, b.id], refs, "yielder", (a.id, b.id)))
+        r = chat(cfg, mediator_messages(a, b, sc, cfg["info"], cfg["vision"]),
+                 _ids_schema([a.id, b.id], refs, "yielder", (a.id, b.id)))
         calls.append({"role": "mediator", **r})
         ans = parse(r["text"]) or {}
         calls[-1]["answer"] = ans
@@ -201,9 +308,11 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
         if y in (a.id, b.id):
             choice = {"yielder": y, "refuge": ans.get("refuge")}
     elif cfg["mode"] == "agents":
+        draws = _draws(a, b) if cfg["tiebreak"] in ("nonce", "silent") else None
         acts = {}
         for me, other in ((a, b), (b, a)):
-            r = chat(cfg, agent_messages(me, other, sc, cfg["info"]),
+            r = chat(cfg, agent_messages(me, other, sc, cfg["info"], cfg["vision"],
+                                         cfg["tiebreak"], draws),
                      _ids_schema([me.id], refs, "action", ("yield", "proceed")))
             ans = parse(r["text"]) or {}
             calls.append({"role": me.id, **r, "answer": ans})
@@ -213,6 +322,10 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
         if len(ylds) == 1 and len(prc) == 1:
             ans = calls[0]["answer"] if ylds[0] == a.id else calls[1]["answer"]
             choice = {"yielder": ylds[0], "refuge": ans.get("refuge")}
+        elif draws and len(ylds) + len(prc) == 2:
+            win = max(draws, key=draws.get)  # larger card proceeds
+            choice = {"yielder": a.id if win == b.id else b.id, "refuge": "any"}
+            tiebroken = True
     else:
         raise ValueError(f"llm.mode must be mediator or agents, not {cfg['mode']!r}")
 
@@ -221,7 +334,8 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
     detail = {"llm_mode": cfg["mode"], "llm_model": cfg["model"], "think_time": think,
               "llm_latency": sum(c["latency"] for c in calls), "llm_cached": all(c["cached"] for c in calls),
               "llm_error": next((c["error"] for c in calls if c["error"]), None),
-              "llm_answers": [{"role": c["role"], **c["answer"]} for c in calls]}
+              "llm_answers": [{"role": c["role"], "think": c.get("reasoning", ""), **c["answer"]} for c in calls],
+              "llm_tiebreak": tiebroken}
     if choice:
         Y = a if choice["yielder"] == a.id else b
         P = b if Y is a else a

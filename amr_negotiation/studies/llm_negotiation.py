@@ -24,8 +24,13 @@ from learned_negotiator import config, wdelay
 from amr_negotiation import sim2d
 
 ROOT = Path(__file__).resolve().parents[1]
-VARIANTS = {"llm_med_raw": ("mediator", "raw"), "llm_med_plans": ("mediator", "plans"),
-            "llm_agents_raw": ("agents", "raw"), "llm_agents_plans": ("agents", "plans")}
+VARIANTS = {"llm_med_raw": ("mediator", "raw", "none", ""), "llm_med_plans": ("mediator", "plans", "none", ""),
+            "llm_agents_raw": ("agents", "raw", "none", ""), "llm_agents_plans": ("agents", "plans", "none", ""),
+            "llm_med_img": ("mediator", "raw", "only", ""), "llm_med_imgtext": ("mediator", "raw", "both", ""),
+            "llm_agents_img": ("agents", "raw", "ego", ""),
+            "llm_agents_nonce": ("agents", "raw", "none", "nonce"),
+            "llm_agents_img_nonce": ("agents", "raw", "ego", "nonce"),
+            "llm_agents_silent": ("agents", "raw", "ego", "silent")}
 BASELINES = {"fixed_priority": {"name": "fixed_priority"}, "rules_default": {"name": "rule_based"},
              "cost_bid": {"name": "cost_bid"}}
 TIE = 0.5  # s: forced outcomes closer than this count as a tie (either yielder is right)
@@ -34,10 +39,14 @@ TIE = 0.5  # s: forced outcomes closer than this count as a tie (either yielder 
 def policies(a):
     pols = dict(BASELINES)
     for v in a.variants:
-        mode, info = VARIANTS[v]
-        pols[v] = {"name": "llm", "llm": {"mode": mode, "info": info, "base_url": a.base_url, "model": a.model,
+        mode, info, vision, tb = VARIANTS[v]
+        pols[v] = {"name": "llm", "llm": {"mode": mode, "info": info, "vision": vision, "tiebreak": tb,
+                                          "base_url": a.base_url, "model": a.model,
                                           "think_time": a.think if a.think == "measured" else float(a.think),
                                           "max_tokens": a.max_tokens, "constrain": not a.no_constrain,
+                                          "timeout": a.llm_timeout,
+                                          "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
+                                                        if a.no_think else None,
                                           "cache": str(a.out / "cache.jsonl")}}
     return pols
 
@@ -61,7 +70,7 @@ def job(args):
                      "best_yielder": best_y, "forced_gap": gap, "rule": rule,
                      "fallback": rule.split(":")[0].removeprefix("llm_fallback_") if rule.startswith("llm_fallback") else None,
                      "think_time": d.get("think_time", 0.0), "llm_error": d.get("llm_error"),
-                     "llm_answers": d.get("llm_answers")})
+                     "llm_answers": d.get("llm_answers"), "llm_tiebreak": d.get("llm_tiebreak")})
     return rows
 
 
@@ -126,6 +135,8 @@ def main(argv=None):
     ap.add_argument("--variants", nargs="+", default=list(VARIANTS), choices=list(VARIANTS))
     ap.add_argument("--think", default="measured", help="'measured' (charge real LLM latency) or seconds, e.g. 0")
     ap.add_argument("--max-tokens", type=int, default=256, help="raise (e.g. 4096) for reasoning models")
+    ap.add_argument("--llm-timeout", type=float, default=300.0, help="per-call timeout (s)")
+    ap.add_argument("--no-think", action="store_true", help="disable reasoning traces (enable_thinking=false)")
     ap.add_argument("--no-constrain", action="store_true", help="don't send a JSON schema (older servers)")
     ap.add_argument("--workers", type=int, default=2, help="parallel episodes; match llama-server --parallel")
     ap.add_argument("--seed0", type=int, default=100_000, help="first encounter seed (held out from training)")

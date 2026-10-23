@@ -7,3 +7,14 @@ ros2_ws/install/
 ros2_ws/log/
 .pytest_cache/
 .ruff_cache/
+.venv/
+paper/*.aux
+paper/*.log
+paper/*.out
+paper2/*.aux
+paper2/*.log
+paper2/*.out
+paper2/*.fls
+paper2/*.fdb_latexmk
+paper2/*.synctex.gz
+studies/results_raw/llm/*/cache.jsonl
