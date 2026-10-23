@@ -1,0 +1,23 @@
+{
+ "tag": "nemotron-omni-nonce",
+ "model": "nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4",
+ "base_url": "http://localhost:8000/v1",
+ "server_models": [
+  "nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4"
+ ],
+ "n": 100,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_agents_img",
+  "llm_agents_img_nonce",
+  "llm_agents_nonce"
+ ],
+ "think": "0",
+ "max_tokens": 4096,
+ "constrain": true,
+ "seed0": 100000,
+ "wall_s": 763.1582078933716
+}

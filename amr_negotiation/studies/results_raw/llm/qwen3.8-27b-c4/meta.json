@@ -1,0 +1,24 @@
+{
+ "tag": "qwen3.8-27b-c4",
+ "model": "qwen3.8-27b-nvfp4",
+ "base_url": "http://localhost:8000/v1",
+ "server_models": "unavailable (ConnectionResetError)",
+ "n": 100,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_med_raw",
+  "llm_med_plans",
+  "llm_agents_raw",
+  "llm_agents_plans",
+  "llm_med_img",
+  "llm_med_imgtext"
+ ],
+ "think": "measured",
+ "max_tokens": 4096,
+ "constrain": false,
+ "seed0": 100000,
+ "wall_s": 39285.366725444794
+}

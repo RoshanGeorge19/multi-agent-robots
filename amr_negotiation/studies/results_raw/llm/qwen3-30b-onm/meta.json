@@ -1,0 +1,26 @@
+{
+ "tag": "qwen3-30b-onm",
+ "model": "qwen3-30b-a3b-nvfp4",
+ "base_url": "http://localhost:8000/v1",
+ "server_models": [
+  "qwen3-30b-a3b-nvfp4"
+ ],
+ "n": 25,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_med_raw",
+  "llm_med_plans",
+  "llm_agents_raw",
+  "llm_agents_plans",
+  "llm_med_img",
+  "llm_med_imgtext"
+ ],
+ "think": "measured",
+ "max_tokens": 4096,
+ "constrain": true,
+ "seed0": 100000,
+ "wall_s": 5255.063820838928
+}

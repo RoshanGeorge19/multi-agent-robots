@@ -1,0 +1,22 @@
+{
+ "tag": "nemotron-vl-12b-silent",
+ "model": "nvidia-nemotron-nano-12b-v2-vl-nvfp4-qad",
+ "base_url": "http://localhost:8000/v1",
+ "server_models": [
+  "nvidia-nemotron-nano-12b-v2-vl-nvfp4-qad"
+ ],
+ "n": 100,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_agents_img",
+  "llm_agents_silent"
+ ],
+ "think": "0",
+ "max_tokens": 4096,
+ "constrain": true,
+ "seed0": 100000,
+ "wall_s": 1188.6202745437622
+}
