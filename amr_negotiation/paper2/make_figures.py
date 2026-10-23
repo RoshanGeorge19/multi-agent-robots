@@ -22,7 +22,7 @@ def rows(tag):
 
 def stat(tag, label, key="excess"):
     xs = [r[key] for r in rows(tag) if r["label"] == label and r["success"]]
-    return (st.mean(xs), st.stdev(xs) / max(len(xs) - 1, 1) ** 0.5 * 1.96) if xs else (None, None)
+    return (st.mean(xs), st.stdev(xs) / max(len(xs), 1) ** 0.5 * 1.96) if xs else (None, None)
 
 
 def barset(groups, path, ylab, title=None, ylim=None, refs=None):
@@ -57,8 +57,7 @@ def barset(groups, path, ylab, title=None, ylim=None, refs=None):
 # ---- fig_screen: screen excess by model vs baselines
 models = [("qwen3.8-27b", "Qwen3.8-27B"), ("qwen3-30b", "Qwen3-30B"), ("nemotron-3-super", "N3-Super"),
           ("nemotron-nano", "N3-Nano"), ("nemotron-omni", "N3-Omni"), ("nemotron-lightning", "N3.5-Light"),
-          ("gemma4-26b", "Gemma4-26B"), ("nemotron-super-49b", "N-Super49"), ("nemotron-vl-12b", "N-VL-12B"),
-          ("muse-glimmer", "MuseGlm")]
+          ("gemma4-26b", "Gemma4-26B"), ("nemotron-super-49b", "N-Super49"), ("nemotron-vl-12b", "N-VL-12B")]
 es = [(name, *stat(tag, "llm_med_plans")) for tag, name in models]
 groups = [("LLM med_plans", es),
           ("cost_bid", [("cost_bid", *stat("nemotron-nano", "cost_bid"))]),
@@ -76,14 +75,43 @@ for tag, name in [("qwen3.8-27b", "Q3.8"), ("qwen3-30b", "Q3-30B")]:
         (f"{name} plans on", *stat(tag + "-on0", "llm_med_plans"))]))
 barset(groups, "think.pdf", "excess delay (s)")
 
-# ---- fig_latency: quality (think=0) vs measured excess, med_plans
-groups = [("quality only", [(t, *stat(t + "-off0" if t != "nemotron-3-super" else t + "-off0", "llm_med_plans"))
-                            for t in ["qwen3.8-27b", "qwen3-30b"]]),
-          ("measured", [("qwen3.8-27b", *stat("qwen3.8-27b-offm-s", "llm_med_plans")),
-                        ("qwen3.8-27b ", *stat("qwen3.8-27b-on0", "llm_med_plans")),
-                        ("qwen3-30b", *stat("qwen3-30b-offm-s", "llm_med_plans")),
-                        ("qwen3-30b ", *stat("qwen3-30b-onm", "llm_med_plans"))])]
-barset(groups, "latency.pdf", "excess delay (s)")
+# ---- fig_latency: zero-cost (think=0) vs measured-latency excess, med_plans.
+# Each x position pairs two runs with the same thinking setting on the same encounters.
+# A missing run is marked "not run"; no other condition is substituted for it.
+LAT_CELLS = [  # (xlabel, zero-cost run, measured run, measured regime)
+    ("Q3-30B\nthink on", "qwen3-30b-on0", "qwen3-30b-onm", "concurrent"),
+    ("Q3-30B\nthink off", "qwen3-30b-off0", "qwen3-30b-offm-s", "serial"),
+    ("Q3.8-27B\nthink on", "qwen3.8-27b-on0", None, None),
+    ("Q3.8-27B\nthink off", "qwen3.8-27b-off0", "qwen3.8-27b-offm-s", "serial"),
+]
+
+
+def n_ok(tag, label):
+    return sum(1 for r in rows(tag) if r["label"] == label and r["success"])
+
+
+fig, ax = plt.subplots(figsize=(3.45, 2.4))
+w = 0.38
+for i, (_, t0, tm, regime) in enumerate(LAT_CELLS):
+    for k, (tag, lab, col) in enumerate([(t0, "zero cost (think=0)", "tab:blue"),
+                                         (tm, "measured latency", "tab:red")]):
+        x = i + (k - 0.5) * w
+        m, e = stat(tag, "llm_med_plans") if tag else (None, None)
+        if m is None:
+            ax.text(x, 3, "not run", rotation=90, ha="center", va="bottom", fontsize=6)
+            continue
+        ax.bar(x, m, w * 0.9, yerr=e, capsize=2, color=col, label=lab if i == 0 else None)
+        note = f"n={n_ok(tag, 'llm_med_plans')}" + (f"\n{regime}" if k == 1 else "")
+        ax.text(x, max(m + (e or 0), 0) + 2, note, ha="center", va="bottom", fontsize=5)
+ax.set_xticks(range(len(LAT_CELLS)))
+ax.set_xticklabels([c[0] for c in LAT_CELLS], fontsize=6)
+ax.set_ylabel("excess delay (s)")
+ax.axhline(0, color="k", lw=0.5)
+ax.legend(fontsize=6, frameon=False, loc="upper right")
+fig.tight_layout()
+fig.savefig(FIG / "latency.pdf", bbox_inches="tight")
+plt.close(fig)
+print("wrote latency.pdf")
 
 # ---- fig_vlm: modality arms per VL model
 groups = [("text", [(t, *stat(t + "-vlm", "llm_med_plans")) for t in
