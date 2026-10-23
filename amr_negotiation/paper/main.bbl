@@ -199,6 +199,22 @@ A.~Pertzovskiy, R.~Stern, R.~Zivan, and A.~Felner, ``{Multi-Agent Corridor
   240--247. [Online]. Available: \url{https://doi.org/10.24963/ijcai.2025/28}
 \BIBentrySTDinterwordspacing
 
+\bibitem{fanti2002event}
+\BIBentryALTinterwordspacing
+M.~P. Fanti, ``{Event-based controller to avoid deadlock and collisions in
+  zone-control AGVS},'' \emph{International Journal of Production Research},
+  vol.~40, no.~6, pp. 1453--1478, 2002. [Online]. Available:
+  \url{https://doi.org/10.1080/00207540110118073}
+\BIBentrySTDinterwordspacing
+
+\bibitem{geozone2023}
+\BIBentryALTinterwordspacing
+K.~Lee and S.~Park, ``{Geometric Zone-Control Algorithm for Collision and
+  Deadlock Avoidance in AGV System},'' \emph{IEEE Access}, vol.~11, pp.
+  131\,289--131\,301, 2023. [Online]. Available:
+  \url{https://doi.org/10.1109/access.2023.3335843}
+\BIBentrySTDinterwordspacing
+
 \bibitem{mannucci2019provably}
 \BIBentryALTinterwordspacing
 A.~Mannucci, L.~Pallottino, and F.~Pecora, ``{Provably Safe Multi-Robot
