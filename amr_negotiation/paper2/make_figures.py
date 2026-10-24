@@ -150,7 +150,7 @@ plt.close(fig)
 print("wrote disagree.pdf")
 
 # ---- fig_tiebreak: triad (img=rulebook, silent=hidden draw, nonce=visible draw)
-groups = [("excess", []), ("right yielder", [])]
+groups = [("excess", []), ("reference yielder", [])]
 for tag in ["gemma4-26b", "qwen3.8-27b", "nemotron-omni", "nemotron-vl-12b"]:
     rs_img = [r for r in rows(tag + "-silent") if r["label"] == "llm_agents_img"]
     rs_sil = [r for r in rows(tag + "-silent") if r["label"] == "llm_agents_silent"]
