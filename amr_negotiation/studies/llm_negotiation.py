@@ -30,7 +30,10 @@ VARIANTS = {"llm_med_raw": ("mediator", "raw", "none", ""), "llm_med_plans": ("m
             "llm_agents_img": ("agents", "raw", "ego", ""),
             "llm_agents_nonce": ("agents", "raw", "none", "nonce"),
             "llm_agents_img_nonce": ("agents", "raw", "ego", "nonce"),
-            "llm_agents_silent": ("agents", "raw", "ego", "silent")}
+            "llm_agents_silent": ("agents", "raw", "ego", "silent"),
+            "llm_agents_commit": ("agents", "raw", "none", "commit"),
+            "llm_agents_img_commit": ("agents", "raw", "ego", "commit"),
+            "llm_agents_csilent": ("agents", "raw", "none", "csilent")}
 BASELINES = {"fixed_priority": {"name": "fixed_priority"}, "rules_default": {"name": "rule_based"},
              "cost_bid": {"name": "cost_bid"}}
 TIE = 0.5  # s: forced outcomes closer than this count as a tie (either yielder is right)
@@ -61,6 +64,8 @@ def job(args):
     best_y = "tie" if gap < TIE else min(forced, key=forced.get)
     rows = []
     for label, pol in policies(a).items():
+        if pol["name"] == "llm":
+            pol = {**pol, "llm": {**pol["llm"], "draw_seed": seed}}  # commit-reveal nonces keyed per encounter
         r = sim2d.run_episode(sc, pol, seed=seed)
         d = r["decisions"][0] if r["decisions"] else {}
         rule = d.get("rule") or ""

@@ -83,3 +83,18 @@ Each item has a `[XX]`/`[ANONYMIZED-URL]` placeholder and a `% TODO` in
   messages disabled) and an ORCA/RVO/CBF baseline.
 - Re-trace of final-code T-junction runs (see above).
 - Refuge-set misreporting and commit tie-break exploitation tests.
+
+## Update 2026-10-23 (second pass)
+
+All computable checklist items resolved; manuscript `% TODO` markers flipped to `% VERIFIED` with method notes.
+
+- Prediction-vs-realized delay error: per-robot MAE 1.9 s (S1+S4, 780 eps rerun with bid capture; 780/780 rows match released CSVs). Filled.
+- Asymmetric 2% mismatches: confirmed near-ties — 16/720 flips, median bid gap 0.6 s vs 12.4 s for matches. Text updated.
+- Convoy paired CIs: equal-urgency gap +0.7±1.4 s; urgent column per-mean CIs ±3.1/±4.2/±6.7/±6.3 and paired gb−fp +14.4±8.0, gb−oracle +19.0±6.9, cb−gb +12.4±5.8. Filled; provisional-ordering hedge resolved.
+- T-junction mean-delay CIs ±4.7/±5.0/±4.0; cb−rulebook paired −4.3±2.8. Filled.
+- Commit IDs: parent of 2ba4c6d is e400e99 (explore-mode commit), not bf24bf4; f5249a6 merged on main. Sentence corrected.
+- T-junction re-trace: done — both diffs trace to one timing race (whether the stem robot exits before/after A clears the bay); s3's 196.8 s is a dual-proceed wait released by the 60 s proceed timeout. Paragraph rewritten.
+- Detection distance: gz_detect_dist = first lidar-cluster contact. Hold runs are 1.10–1.18 m, not 2.3–2.6 m (that's the share-on-detect runs). Sentence corrected.
+- Start-time figures (35 s/12 s): verified — A clears x=8 in 34.9 s, B enters by 12.1 s; all 6000 released negotiating episodes recorded a yielder.
+
+Still open: real artifact URL/DOI (lines 26, 205). Deferred-by-design items unchanged.

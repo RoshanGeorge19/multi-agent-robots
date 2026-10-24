@@ -1,0 +1,21 @@
+{
+ "tag": "qwen3-30b-onm-s",
+ "model": "qwen3-30b-a3b-nvfp4",
+ "base_url": "http://localhost:8000/v1",
+ "server_models": [
+  "qwen3-30b-a3b-nvfp4"
+ ],
+ "n": 25,
+ "layouts": [
+  "single_bay",
+  "two_bays"
+ ],
+ "variants": [
+  "llm_med_plans"
+ ],
+ "think": "measured",
+ "max_tokens": 4096,
+ "constrain": true,
+ "seed0": 100000,
+ "wall_s": 839.1644299030304
+}
