@@ -254,6 +254,23 @@ def _draws(a: Snapshot, b: Snapshot) -> dict:
             for s in (a, b)}
 
 
+def _commit_draws(a: Snapshot, b: Snapshot, seed: int = 0) -> dict:
+    """Commit-reveal draw (Blum coin flip): each robot holds a nonce it commits to before the peer's
+    reveal, so the card material — both nonces — cannot be steered by anything a robot chooses to
+    broadcast. In deployment the nonces are runtime-random secrets; in simulation they are derived
+    deterministically from the per-encounter draw seed (`llm.draw_seed`, set by the study to the
+    episode seed) and the robot's own id, so both sides recompute identical values. Deliberately
+    NOT bound to the detection time: a robot that shifts the time it broadcasts changes nothing."""
+    nonces = {s.id: int(hashlib.sha256(f"{seed}|nonce|{s.id}".encode()).hexdigest()[:16], 16)
+              for s in (a, b)}
+    commits = {s.id: hashlib.sha256(f"{s.id}|{nonces[s.id]}".encode()).hexdigest()[:16]
+               for s in (a, b)}
+    material = f"{nonces[a.id]}|{nonces[b.id]}"
+    cards = {s.id: int(hashlib.sha256(f"{s.id}|{material}".encode()).hexdigest()[:16], 16)
+             for s in (a, b)}
+    return {"nonces": nonces, "commits": commits, "cards": cards}
+
+
 def agent_messages(me: Snapshot, other: Snapshot, sc: Scenario, info: str, vision: str = "none",
                    tiebreak: str = "", draws: dict | None = None):
     a, b = sorted((me, other), key=lambda s: s.id)
@@ -261,12 +278,18 @@ def agent_messages(me: Snapshot, other: Snapshot, sc: Scenario, info: str, visio
     q = (f"You are robot {me.id}. Robot {other.id} has broadcast its state to you.\n" + desc +
          f"\n\nShould you ({me.id}) yield, or proceed and let {other.id} yield? Aim to keep the urgency-weighted "
          "total delay of both robots small; if you both proceed or both yield, a fixed rulebook decides instead. ")
-    if tiebreak == "nonce" and draws:
+    if tiebreak in ("nonce", "commit") and draws:
         q = q.replace("a fixed rulebook decides instead. ",
                       "the draw decides instead. ")
-        q += ("Draw rule: each robot holds a card — a random value bound to its id and this encounter "
-              f"that neither can choose: yours is {draws[me.id]}, {other.id}'s is {draws[other.id]}. "
-              "If actions conflict (both yield or both proceed), the robot with the LARGER card proceeds. ")
+        if tiebreak == "commit":
+            q += ("Draw rule: each robot commits to a nonce, then reveals it; each card is a hash of "
+                  "the robot's id and BOTH nonces, committed before either was seen, so neither can "
+                  f"choose its value: yours is {draws[me.id]}, {other.id}'s is {draws[other.id]}. "
+                  "If actions conflict (both yield or both proceed), the robot with the LARGER card proceeds. ")
+        else:
+            q += ("Draw rule: each robot holds a card — a random value bound to its id and this encounter "
+                  f"that neither can choose: yours is {draws[me.id]}, {other.id}'s is {draws[other.id]}. "
+                  "If actions conflict (both yield or both proceed), the robot with the LARGER card proceeds. ")
     q += (
          'Reply as JSON: {"reason": "<one sentence>", "action": "yield" or "proceed", "refuge": "<refuge id, or any>"}')
     if vision == "ego":
@@ -297,24 +320,26 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
     cfg = _cfg(policy)
     a, b = sorted(snaps, key=lambda s: s.id)
     refs = [r.id for r in sc.refuges()]
-    calls, choice, tiebroken = [], {}, False
+    calls, choice, tiebroken, cr = [], {}, False, None
     if cfg["mode"] == "mediator":
         r = chat(cfg, mediator_messages(a, b, sc, cfg["info"], cfg["vision"]),
                  _ids_schema([a.id, b.id], refs, "yielder", (a.id, b.id)))
         calls.append({"role": "mediator", **r})
-        ans = parse(r["text"]) or {}
+        ans = parse(r["text"]) or parse(r.get("reasoning") or "") or {}
         calls[-1]["answer"] = ans
         y = ans.get("yielder")
         if y in (a.id, b.id):
             choice = {"yielder": y, "refuge": ans.get("refuge")}
     elif cfg["mode"] == "agents":
-        draws = _draws(a, b) if cfg["tiebreak"] in ("nonce", "silent") else None
+        tb = cfg["tiebreak"]
+        cr = _commit_draws(a, b, cfg.get("draw_seed", 0)) if tb in ("commit", "csilent") else None
+        draws = cr["cards"] if cr else (_draws(a, b) if tb in ("nonce", "silent") else None)
         acts = {}
         for me, other in ((a, b), (b, a)):
             r = chat(cfg, agent_messages(me, other, sc, cfg["info"], cfg["vision"],
                                          cfg["tiebreak"], draws),
                      _ids_schema([me.id], refs, "action", ("yield", "proceed")))
-            ans = parse(r["text"]) or {}
+            ans = parse(r["text"]) or parse(r.get("reasoning") or "") or {}
             calls.append({"role": me.id, **r, "answer": ans})
             acts[me.id] = ans.get("action")
         ylds = [i for i in (a.id, b.id) if acts[i] == "yield"]
@@ -336,6 +361,8 @@ def decide_llm(snaps: list[Snapshot], sc: Scenario, policy: dict):
               "llm_error": next((c["error"] for c in calls if c["error"]), None),
               "llm_answers": [{"role": c["role"], "think": c.get("reasoning", ""), **c["answer"]} for c in calls],
               "llm_tiebreak": tiebroken}
+    if cr:
+        detail["llm_draw"] = {"nonces": cr["nonces"], "commits": cr["commits"], "cards": cr["cards"]}
     if choice:
         Y = a if choice["yielder"] == a.id else b
         P = b if Y is a else a

@@ -7,8 +7,7 @@
 \providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
 \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
-\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
-  \fontdimen4\font\relax}
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus \fontdimen4\font\relax}
 \providecommand{\BIBforeignlanguage}[2]{{%
 \expandafter\ifx\csname l@#1\endcsname\relax
 \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -22,94 +21,62 @@
 \BIBdecl
 
 \bibitem{paper1}
-Anonymous, ``Who backs into the bay? benchmarking negotiation policies for
-  head-on robot encounters in single-lane corridors,'' 2026, companion
-  submission.
+Anonymous, ``Who backs into the bay? benchmarking negotiation policies for head-on robot encounters in single-lane corridors,'' 2026, companion submission.
 
 \bibitem{marlin2024}
 \BIBentryALTinterwordspacing
-T.~Godfrey, W.~Hunt, and M.~D. Soorati, ``{MARLIN: Multi-Agent Reinforcement
-  Learning Guided by Language-Based Inter-Robot Negotiation},'' arXiv preprint,
-  2024. [Online]. Available: \url{https://arxiv.org/abs/2410.14383}
+T.~Godfrey, W.~Hunt, and M.~D. Soorati, ``{MARLIN: Multi-Agent Reinforcement Learning Guided by Language-Based Inter-Robot Negotiation},'' arXiv preprint, 2024. [Online]. Available: \url{https://arxiv.org/abs/2410.14383}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gamechat2025}
 \BIBentryALTinterwordspacing
-V.~Mahadevan, S.~Zhang, and R.~Chandra, ``{GameChat: Multi-LLM Dialogue for
-  Safe, Agile, and Socially Optimal Multi-Agent Navigation in Constrained
-  Environments},'' in \emph{2025 IEEE International Symposium on Multi-Robot
-  and Multi-Agent Systems (MRS)}, 2025, pp. 1--7. [Online]. Available:
-  \url{https://doi.org/10.1109/mrs66243.2025.11357267}
+V.~Mahadevan, S.~Zhang, and R.~Chandra, ``{GameChat: Multi-LLM Dialogue for Safe, Agile, and Socially Optimal Multi-Agent Navigation in Constrained Environments},'' in \emph{2025 IEEE International Symposium on Multi-Robot and Multi-Agent Systems (MRS)}, 2025, pp. 1--7. [Online]. Available: \url{https://doi.org/10.1109/mrs66243.2025.11357267}
 \BIBentrySTDinterwordspacing
 
 \bibitem{garg2024llm}
 \BIBentryALTinterwordspacing
-K.~Garg, S.~Zhang, J.~Arkin, and C.~Fan, ``{Foundation Models to the Rescue:
-  Deadlock Resolution in Connected Multi-Robot Systems},'' arXiv preprint,
-  2024. [Online]. Available: \url{https://arxiv.org/abs/2404.06413}
+K.~Garg, S.~Zhang, J.~Arkin, and C.~Fan, ``{Foundation Models to the Rescue: Deadlock Resolution in Connected Multi-Robot Systems},'' arXiv preprint, 2024. [Online]. Available: \url{https://arxiv.org/abs/2404.06413}
 \BIBentrySTDinterwordspacing
 
 \bibitem{chen2024scalable}
 \BIBentryALTinterwordspacing
-Y.~Chen, J.~Arkin, Y.~Zhang, N.~Roy, and C.~Fan, ``{Scalable Multi-Robot
-  Collaboration with Large Language Models: Centralized or Decentralized
-  Systems?}'' in \emph{2024 IEEE International Conference on Robotics and
-  Automation (ICRA)}, 2024, pp. 4311--4317. [Online]. Available:
-  \url{https://doi.org/10.1109/icra57147.2024.10610676}
+Y.~Chen, J.~Arkin, Y.~Zhang, N.~Roy, and C.~Fan, ``{Scalable Multi-Robot Collaboration with Large Language Models: Centralized or Decentralized Systems?}'' in \emph{2024 IEEE International Conference on Robotics and Automation (ICRA)}, 2024, pp. 4311--4317. [Online]. Available: \url{https://doi.org/10.1109/icra57147.2024.10610676}
 \BIBentrySTDinterwordspacing
 
 \bibitem{dias2006market}
 \BIBentryALTinterwordspacing
-M.~Dias, R.~Zlot, N.~Kalra, and A.~Stentz, ``{Market-Based Multirobot
-  Coordination: A Survey and Analysis},'' \emph{Proceedings of the IEEE},
-  vol.~94, no.~7, pp. 1257--1270, 2006. [Online]. Available:
-  \url{https://doi.org/10.1109/jproc.2006.876939}
+M.~Dias, R.~Zlot, N.~Kalra, and A.~Stentz, ``{Market-Based Multirobot Coordination: A Survey and Analysis},'' \emph{Proceedings of the IEEE}, vol.~94, no.~7, pp. 1257--1270, 2006. [Online]. Available: \url{https://doi.org/10.1109/jproc.2006.876939}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gerkey2002sold}
 \BIBentryALTinterwordspacing
-B.~Gerkey and M.~Mataric, ``{Sold!: auction methods for multirobot
-  coordination},'' \emph{IEEE Transactions on Robotics and Automation},
-  vol.~18, no.~5, pp. 758--768, 2002. [Online]. Available:
-  \url{https://doi.org/10.1109/tra.2002.803462}
+B.~Gerkey and M.~Mataric, ``{Sold!: auction methods for multirobot coordination},'' \emph{IEEE Transactions on Robotics and Automation}, vol.~18, no.~5, pp. 758--768, 2002. [Online]. Available: \url{https://doi.org/10.1109/tra.2002.803462}
 \BIBentrySTDinterwordspacing
 
 \bibitem{amir2015mapfauction}
 \BIBentryALTinterwordspacing
-O.~Amir, G.~Sharon, and R.~Stern, ``{Multi-Agent Pathfinding as a Combinatorial
-  Auction},'' \emph{Proceedings of the AAAI Conference on Artificial
-  Intelligence}, vol.~29, no.~1, 2015. [Online]. Available:
-  \url{https://doi.org/10.1609/aaai.v29i1.9427}
+O.~Amir, G.~Sharon, and R.~Stern, ``{Multi-Agent Pathfinding as a Combinatorial Auction},'' \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, vol.~29, no.~1, 2015. [Online]. Available: \url{https://doi.org/10.1609/aaai.v29i1.9427}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gautier2022negotiated}
 \BIBentryALTinterwordspacing
-A.~Gautier, A.~Stephens, B.~Lacerda, N.~Hawes, and M.~Wooldridge, ``{Negotiated
-  Path Planning for Non-Cooperative Multi-Robot Systems},'' in
-  \emph{International Joint Conference on Autonomous Agents and Multiagent
-  Systems}, 2022, pp. 472--480. [Online]. Available:
-  \url{https://doi.org/10.65109/dvsq3214}
+A.~Gautier, A.~Stephens, B.~Lacerda, N.~Hawes, and M.~Wooldridge, ``{Negotiated Path Planning for Non-Cooperative Multi-Robot Systems},'' in \emph{International Joint Conference on Autonomous Agents and Multiagent Systems}, 2022, pp. 472--480. [Online]. Available: \url{https://doi.org/10.65109/dvsq3214}
 \BIBentrySTDinterwordspacing
 
 \bibitem{alghamdi2025opinion}
 \BIBentryALTinterwordspacing
-N.~K. Alghamdi and S.~Park, ``{Opinion-Driven Decision-Making for Multi-Robot
-  Navigation through Narrow Corridors},'' arXiv preprint, 2025. [Online].
-  Available: \url{https://arxiv.org/abs/2504.20947}
+N.~K. Alghamdi and S.~Park, ``{Opinion-Driven Decision-Making for Multi-Robot Navigation through Narrow Corridors},'' arXiv preprint, 2025. [Online]. Available: \url{https://arxiv.org/abs/2504.20947}
 \BIBentrySTDinterwordspacing
 
 \bibitem{aumann1974subjectivity}
-R.~J. Aumann, ``Subjectivity and correlation in randomized strategies,''
-  \emph{Journal of Mathematical Economics}, vol.~1, no.~1, pp. 67--96, 1974.
+R.~J. Aumann, ``Subjectivity and correlation in randomized strategies,'' \emph{Journal of Mathematical Economics}, vol.~1, no.~1, pp. 67--96, 1974.
 
 \bibitem{nash1950bargaining}
 \BIBentryALTinterwordspacing
-J.~F. Nash, ``{The Bargaining Problem},'' \emph{Econometrica}, vol.~18, no.~2,
-  p. 155, 1950. [Online]. Available: \url{https://doi.org/10.2307/1907266}
+J.~F. Nash, ``{The Bargaining Problem},'' \emph{Econometrica}, vol.~18, no.~2, p. 155, 1950. [Online]. Available: \url{https://doi.org/10.2307/1907266}
 \BIBentrySTDinterwordspacing
 
 \bibitem{blum1983coin}
-M.~Blum, ``Coin flipping by telephone: A protocol for solving impossible
-  problems,'' \emph{SIGACT News}, vol.~15, no.~1, pp. 23--27, 1983.
+M.~Blum, ``Coin flipping by telephone: A protocol for solving impossible problems,'' \emph{SIGACT News}, vol.~15, no.~1, pp. 23--27, 1983.
 
 \end{thebibliography}

@@ -69,9 +69,9 @@ Each item has an `[XX]`/`% TODO` in `main.tex` unless noted.
       `*-ego` rows (Sec. V-E `[XX]`).
 - [ ] **Card-win split** — empirical A/B split of the SHA-256 draw over
       the 200 encounters (Sec. V-F `[XX]`; compute from `llm._draws`).
-- [ ] **Serial thinking-on measured runs** — `qwen3-30b-onm-s` never
-      ran; `qwen3.8-27b-onm-s` was stopped at 10/50 (9.8 h). Limitation
-      stated; fill `[XX]` latency/excess if runs ever complete.
+- [x] **Serial thinking-on measured runs** — DONE 2026-10-23. Both ran
+      (llm_med_plans, n=50, workers=1): qwen3-30b 16.5 s lat / 55.3±8.7 s
+      excess; qwen3.8-27b 49.9 s / 157.9±23.2 s. Filled in Sec. V-C.
 - [ ] **Screen trace status** — screen rows predate trace logging;
       confirm whether gemma4 / N-Super-49B / N-VL-12B emitted reasoning
       before calling them non-reasoning (TODO in Sec. V-A).
@@ -89,3 +89,13 @@ Each item has an `[XX]`/`% TODO` in `main.tex` unless noted.
   robots.
 - Agents-mode measured rows exist in released data and are worse
   (172.9 s @ 51.9 s noted in text) but are not in Table II.
+
+## Update 2026-10-23 (second pass)
+
+- Paired-difference CIs filled: on/off plans +12.8±2.6 s (qwen3.8) and +24.2±3.6 s (qwen3-30b), Wilcoxon p<0.001 both. Image−text paired: gemma4 −2.7±2.8, qwen3.8 −5.9±4.5 (only CI excluding 0), omni −2.2±3.5, vl-12b −5.1±4.0 — ordering stays unproven for three of four; text updated.
+- Wrong-yielder agreement excess: 13.9 / 39.1 / 17.8 / 14.1 s (omni/qwen3.8/vl-12b/gemma4). Filled.
+- Card-win split: A 60% (120/200) under the plain draw; only 92 distinct card pairs since the key is ids + detection time — noted.
+- Screen trace status: confirmed non-reasoning — super-49b and vl-12b screen caches carry empty reasoning keys; gemma4's 3400 post-logging calls all empty.
+- Commit-reveal draw: implemented (llm.py `_commit_draws`, `tiebreak=commit/csilent`, VARIANTS added). Nonces keyed to per-encounter draw_seed — removes the detection-time lever and the 92-pair collision (100 distinct pairs). Stub-verified over all 200 encounters; split A 55%. Ran end-to-end on nemotron-lightning (results_raw/llm/nemotron-lightning-commit): 12.4±3.0 s visible / 13.1±3.2 s hidden vs 4.8±1.8 s + 80% fallback for the rulebook default — resolves every conflict, same family as the plain draw. NOTE: parse() now falls back to reasoning_content (nemotron-lightning puts its JSON there); released rows unaffected.
+
+Still open: release tag/DOI pin.
