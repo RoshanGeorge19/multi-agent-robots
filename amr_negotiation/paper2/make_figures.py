@@ -79,10 +79,12 @@ barset(groups, "think.pdf", "excess delay (s)")
 # Each x position pairs two runs with the same thinking setting on the same encounters.
 # A missing run is marked "not run"; no other condition is substituted for it.
 LAT_CELLS = [  # (xlabel, zero-cost run, measured run, measured regime)
-    ("Q3-30B\nthink on", "qwen3-30b-on0", "qwen3-30b-onm", "concurrent"),
-    ("Q3-30B\nthink off", "qwen3-30b-off0", "qwen3-30b-offm-s", "serial"),
-    ("Q3.8-27B\nthink on", "qwen3.8-27b-on0", None, None),
-    ("Q3.8-27B\nthink off", "qwen3.8-27b-off0", "qwen3.8-27b-offm-s", "serial"),
+    ("Q3-30B\non, conc.", "qwen3-30b-on0", "qwen3-30b-onm", "concurrent"),
+    ("Q3-30B\non, serial", "qwen3-30b-on0", "qwen3-30b-onm-s", "serial"),
+    ("Q3-30B\noff", "qwen3-30b-off0", "qwen3-30b-offm-s", "serial"),
+    # qwen3.8-27b-onm-s resumed a stopped run's cache; worker count unrecorded (paper Sec. V-C) -> marked *
+    ("Q3.8-27B\non", "qwen3.8-27b-on0", "qwen3.8-27b-onm-s", "serial*"),
+    ("Q3.8-27B\noff", "qwen3.8-27b-off0", "qwen3.8-27b-offm-s", "serial"),
 ]
 
 

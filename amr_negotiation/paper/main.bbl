@@ -7,7 +7,8 @@
 \providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
 \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
-\BIBentryALTinterwordstretchfactor\fontdimen3\font minus \fontdimen4\font\relax}
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
 \providecommand{\BIBforeignlanguage}[2]{{%
 \expandafter\ifx\csname l@#1\endcsname\relax
 \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -22,163 +23,266 @@
 
 \bibitem{grover2023before}
 \BIBentryALTinterwordspacing
-J.~Grover, C.~Liu, and K.~Sycara, ``{The Before, During, and After of Multi-robot Deadlock},'' \emph{The International Journal of Robotics Research}, vol.~42, no.~6, pp. 317--336, 2022. [Online]. Available: \url{https://doi.org/10.1177/02783649221074718}
+J.~Grover, C.~Liu, and K.~Sycara, ``{The Before, During, and After of
+  Multi-robot Deadlock},'' \emph{The International Journal of Robotics
+  Research}, vol.~42, no.~6, pp. 317--336, 2022. [Online]. Available:
+  \url{https://doi.org/10.1177/02783649221074718}
 \BIBentrySTDinterwordspacing
 
 \bibitem{dergachev2021distributed}
 \BIBentryALTinterwordspacing
-S.~Dergachev and K.~Yakovlev, ``{Distributed Multi-Agent Navigation Based on Reciprocal Collision Avoidance and Locally Confined Multi-Agent Path Finding},'' in \emph{2021 IEEE 17th International Conference on Automation Science and Engineering (CASE)}, 2021, pp. 1489--1494. [Online]. Available: \url{https://doi.org/10.1109/case49439.2021.9551564}
+S.~Dergachev and K.~Yakovlev, ``{Distributed Multi-Agent Navigation Based on
+  Reciprocal Collision Avoidance and Locally Confined Multi-Agent Path
+  Finding},'' in \emph{2021 IEEE 17th International Conference on Automation
+  Science and Engineering (CASE)}, 2021, pp. 1489--1494. [Online]. Available:
+  \url{https://doi.org/10.1109/case49439.2021.9551564}
 \BIBentrySTDinterwordspacing
 
 \bibitem{chandra2025deadlock}
 \BIBentryALTinterwordspacing
-R.~Chandra, V.~Zinage, E.~Bakolas, P.~Stone, and J.~Biswas, ``{Deadlock-free, safe, and decentralized multi-robot navigation in social mini-games via discrete-time control barrier functions},'' \emph{Autonomous Robots}, vol.~49, no.~2, 2025. [Online]. Available: \url{https://doi.org/10.1007/s10514-025-10194-8}
+R.~Chandra, V.~Zinage, E.~Bakolas, P.~Stone, and J.~Biswas, ``{Deadlock-free,
+  safe, and decentralized multi-robot navigation in social mini-games via
+  discrete-time control barrier functions},'' \emph{Autonomous Robots},
+  vol.~49, no.~2, 2025. [Online]. Available:
+  \url{https://doi.org/10.1007/s10514-025-10194-8}
 \BIBentrySTDinterwordspacing
 
 \bibitem{cap2016provably}
 \BIBentryALTinterwordspacing
-M.~Cap, J.~Gregoire, and E.~Frazzoli, ``{Provably safe and deadlock-free execution of multi-robot plans under delaying disturbances},'' in \emph{2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 2016, pp. 5113--5118. [Online]. Available: \url{https://doi.org/10.1109/iros.2016.7759750}
+M.~Cap, J.~Gregoire, and E.~Frazzoli, ``{Provably safe and deadlock-free
+  execution of multi-robot plans under delaying disturbances},'' in \emph{2016
+  IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  2016, pp. 5113--5118. [Online]. Available:
+  \url{https://doi.org/10.1109/iros.2016.7759750}
 \BIBentrySTDinterwordspacing
 
 \bibitem{okumura2022pibt}
 \BIBentryALTinterwordspacing
-K.~Okumura, M.~Machida, X.~Défago, and Y.~Tamura, ``{Priority inheritance with backtracking for iterative multi-agent path finding},'' \emph{Artificial Intelligence}, vol. 310, p. 103752, 2022. [Online]. Available: \url{https://doi.org/10.1016/j.artint.2022.103752}
+K.~Okumura, M.~Machida, X.~Défago, and Y.~Tamura, ``{Priority inheritance with
+  backtracking for iterative multi-agent path finding},'' \emph{Artificial
+  Intelligence}, vol. 310, p. 103752, 2022. [Online]. Available:
+  \url{https://doi.org/10.1016/j.artint.2022.103752}
 \BIBentrySTDinterwordspacing
 
 \bibitem{phillips2011sipp}
-M.~Phillips and M.~Likhachev, ``{SIPP}: Safe interval path planning for dynamic environments,'' in \emph{Proc. IEEE International Conference on Robotics and Automation (ICRA)}, 2011, pp. 5628--5635.
+M.~Phillips and M.~Likhachev, ``{SIPP}: Safe interval path planning for dynamic
+  environments,'' in \emph{Proc. IEEE International Conference on Robotics and
+  Automation (ICRA)}, 2011, pp. 5628--5635.
 
 \bibitem{hiertraffic2023}
 \BIBentryALTinterwordspacing
-F.~Pratissoli, R.~Brugioni, N.~Battilani, and L.~Sabattini, ``{Hierarchical Traffic Management of Multi-AGV Systems With Deadlock Prevention Applied to Industrial Environments},'' \emph{IEEE Transactions on Automation Science and Engineering}, vol.~21, no.~3, pp. 3155--3169, 2024. [Online]. Available: \url{https://doi.org/10.1109/tase.2023.3276233}
+F.~Pratissoli, R.~Brugioni, N.~Battilani, and L.~Sabattini, ``{Hierarchical
+  Traffic Management of Multi-AGV Systems With Deadlock Prevention Applied to
+  Industrial Environments},'' \emph{IEEE Transactions on Automation Science and
+  Engineering}, vol.~21, no.~3, pp. 3155--3169, 2024. [Online]. Available:
+  \url{https://doi.org/10.1109/tase.2023.3276233}
 \BIBentrySTDinterwordspacing
 
 \bibitem{rmftraffic}
 \BIBentryALTinterwordspacing
-{Open-RMF contributors}, ``{rmf\_traffic: Traffic Scheduling and Negotiation for Mobile Robot Fleets (software repository)},'' \url{https://github.com/open-rmf/rmf_traffic}, 2026. [Online]. Available: \url{https://github.com/open-rmf/rmf_traffic}
+{Open-RMF contributors}, ``{rmf\_traffic: Traffic Scheduling and Negotiation
+  for Mobile Robot Fleets (software repository)},''
+  \url{https://github.com/open-rmf/rmf_traffic}, 2026. [Online]. Available:
+  \url{https://github.com/open-rmf/rmf_traffic}
 \BIBentrySTDinterwordspacing
 
 \bibitem{openrmf}
 \BIBentryALTinterwordspacing
-{Open Robotics}, ``{Open-RMF: Open Robotics Middleware Framework},'' \url{https://www.open-rmf.org/}, 2026. [Online]. Available: \url{https://www.open-rmf.org/}
+{Open Robotics}, ``{Open-RMF: Open Robotics Middleware Framework},''
+  \url{https://www.open-rmf.org/}, 2026. [Online]. Available:
+  \url{https://www.open-rmf.org/}
 \BIBentrySTDinterwordspacing
 
 \bibitem{kato1992coordinating}
 \BIBentryALTinterwordspacing
-S.~Kato, S.~Nishiyama, and J.~Takeno, ``{Coordinating Mobile Robots By Applying Traffic Rules},'' in \emph{Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems}, vol.~3, 1992, pp. 1535--1541. [Online]. Available: \url{https://doi.org/10.1109/iros.1992.594218}
+S.~Kato, S.~Nishiyama, and J.~Takeno, ``{Coordinating Mobile Robots By Applying
+  Traffic Rules},'' in \emph{Proceedings of the IEEE/RSJ International
+  Conference on Intelligent Robots and Systems}, vol.~3, 1992, pp. 1535--1541.
+  [Online]. Available: \url{https://doi.org/10.1109/iros.1992.594218}
 \BIBentrySTDinterwordspacing
 
 \bibitem{shoham1995social}
 \BIBentryALTinterwordspacing
-Y.~Shoham and M.~Tennenholtz, ``{On social laws for artificial agent societies: off-line design},'' \emph{Artificial Intelligence}, vol.~73, no. 1-2, pp. 231--252, 1995. [Online]. Available: \url{https://doi.org/10.1016/0004-3702(94)00007-n}
+Y.~Shoham and M.~Tennenholtz, ``{On social laws for artificial agent societies:
+  off-line design},'' \emph{Artificial Intelligence}, vol.~73, no. 1-2, pp.
+  231--252, 1995. [Online]. Available:
+  \url{https://doi.org/10.1016/0004-3702(94)00007-n}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gerkey2002sold}
 \BIBentryALTinterwordspacing
-B.~Gerkey and M.~Mataric, ``{Sold!: auction methods for multirobot coordination},'' \emph{IEEE Transactions on Robotics and Automation}, vol.~18, no.~5, pp. 758--768, 2002. [Online]. Available: \url{https://doi.org/10.1109/tra.2002.803462}
+B.~Gerkey and M.~Mataric, ``{Sold!: auction methods for multirobot
+  coordination},'' \emph{IEEE Transactions on Robotics and Automation},
+  vol.~18, no.~5, pp. 758--768, 2002. [Online]. Available:
+  \url{https://doi.org/10.1109/tra.2002.803462}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gautier2022negotiated}
 \BIBentryALTinterwordspacing
-A.~Gautier, A.~Stephens, B.~Lacerda, N.~Hawes, and M.~Wooldridge, ``{Negotiated Path Planning for Non-Cooperative Multi-Robot Systems},'' in \emph{International Joint Conference on Autonomous Agents and Multiagent Systems}, 2022, pp. 472--480. [Online]. Available: \url{https://doi.org/10.65109/dvsq3214}
+A.~Gautier, A.~Stephens, B.~Lacerda, N.~Hawes, and M.~Wooldridge, ``{Negotiated
+  Path Planning for Non-Cooperative Multi-Robot Systems},'' in
+  \emph{International Joint Conference on Autonomous Agents and Multiagent
+  Systems}, 2022, pp. 472--480. [Online]. Available:
+  \url{https://doi.org/10.65109/dvsq3214}
 \BIBentrySTDinterwordspacing
 
 \bibitem{vmasgiveway}
 \BIBentryALTinterwordspacing
-{ProrokLab}, ``{VMAS Scenario Source: give\_way.py},'' \url{https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/give_way.py}, 2026. [Online]. Available: \url{https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/give_way.py}
+{ProrokLab}, ``{VMAS Scenario Source: give\_way.py},''
+  \url{https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/give_way.py},
+  2026. [Online]. Available:
+  \url{https://github.com/proroklab/VectorizedMultiAgentSimulator/blob/main/vmas/scenarios/give_way.py}
 \BIBentrySTDinterwordspacing
 
 \bibitem{bettini2023heterogeneous}
 \BIBentryALTinterwordspacing
-M.~Bettini, A.~Shankar, and A.~Prorok, ``{Heterogeneous Multi-Robot Reinforcement Learning},'' in \emph{International Joint Conference on Autonomous Agents and Multiagent Systems}, 2023, pp. 1485--1494. [Online]. Available: \url{https://doi.org/10.65109/slob2372}
+M.~Bettini, A.~Shankar, and A.~Prorok, ``{Heterogeneous Multi-Robot
+  Reinforcement Learning},'' in \emph{International Joint Conference on
+  Autonomous Agents and Multiagent Systems}, 2023, pp. 1485--1494. [Online].
+  Available: \url{https://doi.org/10.65109/slob2372}
 \BIBentrySTDinterwordspacing
 
 \bibitem{marlin2024}
 \BIBentryALTinterwordspacing
-T.~Godfrey, W.~Hunt, and M.~D. Soorati, ``{MARLIN: Multi-Agent Reinforcement Learning Guided by Language-Based Inter-Robot Negotiation},'' arXiv preprint, 2024. [Online]. Available: \url{https://arxiv.org/abs/2410.14383}
+T.~Godfrey, W.~Hunt, and M.~D. Soorati, ``{MARLIN: Multi-Agent Reinforcement
+  Learning Guided by Language-Based Inter-Robot Negotiation},'' arXiv preprint,
+  2024. [Online]. Available: \url{https://arxiv.org/abs/2410.14383}
 \BIBentrySTDinterwordspacing
 
 \bibitem{gamechat2025}
 \BIBentryALTinterwordspacing
-V.~Mahadevan, S.~Zhang, and R.~Chandra, ``{GameChat: Multi-LLM Dialogue for Safe, Agile, and Socially Optimal Multi-Agent Navigation in Constrained Environments},'' in \emph{2025 IEEE International Symposium on Multi-Robot and Multi-Agent Systems (MRS)}, 2025, pp. 1--7. [Online]. Available: \url{https://doi.org/10.1109/mrs66243.2025.11357267}
+V.~Mahadevan, S.~Zhang, and R.~Chandra, ``{GameChat: Multi-LLM Dialogue for
+  Safe, Agile, and Socially Optimal Multi-Agent Navigation in Constrained
+  Environments},'' in \emph{2025 IEEE International Symposium on Multi-Robot
+  and Multi-Agent Systems (MRS)}, 2025, pp. 1--7. [Online]. Available:
+  \url{https://doi.org/10.1109/mrs66243.2025.11357267}
 \BIBentrySTDinterwordspacing
 
 \bibitem{garg2024llm}
 \BIBentryALTinterwordspacing
-K.~Garg, S.~Zhang, J.~Arkin, and C.~Fan, ``{Foundation Models to the Rescue: Deadlock Resolution in Connected Multi-Robot Systems},'' arXiv preprint, 2024. [Online]. Available: \url{https://arxiv.org/abs/2404.06413}
+K.~Garg, S.~Zhang, J.~Arkin, and C.~Fan, ``{Foundation Models to the Rescue:
+  Deadlock Resolution in Connected Multi-Robot Systems},'' arXiv preprint,
+  2024. [Online]. Available: \url{https://arxiv.org/abs/2404.06413}
 \BIBentrySTDinterwordspacing
 
 \bibitem{chandra2026social}
 \BIBentryALTinterwordspacing
-R.~Chandra, S.~Singh, W.~Luo, and K.~Sycara, ``{Multi-robot navigation in social mini-games: definitions, taxonomy, and algorithms},'' \emph{Autonomous Robots}, vol.~50, no.~2, 2026. [Online]. Available: \url{https://doi.org/10.1007/s10514-026-10251-w}
+R.~Chandra, S.~Singh, W.~Luo, and K.~Sycara, ``{Multi-robot navigation in
+  social mini-games: definitions, taxonomy, and algorithms},'' \emph{Autonomous
+  Robots}, vol.~50, no.~2, 2026. [Online]. Available:
+  \url{https://doi.org/10.1007/s10514-026-10251-w}
 \BIBentrySTDinterwordspacing
 
 \bibitem{stern2019mapf}
 \BIBentryALTinterwordspacing
-R.~Stern, N.~Sturtevant, A.~Felner, S.~Koenig, H.~Ma, T.~Walker, J.~Li, D.~Atzmon, L.~Cohen, T.~K. Kumar, R.~Barták, and E.~Boyarski, ``{Multi-Agent Pathfinding: Definitions, Variants, and Benchmarks},'' \emph{Proceedings of the International Symposium on Combinatorial Search}, vol.~10, no.~1, pp. 151--158, 2021. [Online]. Available: \url{https://doi.org/10.1609/socs.v10i1.18510}
+R.~Stern, N.~Sturtevant, A.~Felner, S.~Koenig, H.~Ma, T.~Walker, J.~Li,
+  D.~Atzmon, L.~Cohen, T.~K. Kumar, R.~Barták, and E.~Boyarski, ``{Multi-Agent
+  Pathfinding: Definitions, Variants, and Benchmarks},'' \emph{Proceedings of
+  the International Symposium on Combinatorial Search}, vol.~10, no.~1, pp.
+  151--158, 2021. [Online]. Available:
+  \url{https://doi.org/10.1609/socs.v10i1.18510}
 \BIBentrySTDinterwordspacing
 
 \bibitem{experience2024narrow}
 \BIBentryALTinterwordspacing
-R.~Moan, C.~McBeth, M.~Morales, N.~Amato, and K.~Hauser, ``{Experience-based multi-agent path finding with narrow corridors},'' in \emph{Robotics: Science and Systems XX}, 2024. [Online]. Available: \url{https://doi.org/10.15607/rss.2024.xx.087}
+R.~Moan, C.~McBeth, M.~Morales, N.~Amato, and K.~Hauser, ``{Experience-based
+  multi-agent path finding with narrow corridors},'' in \emph{Robotics: Science
+  and Systems XX}, 2024. [Online]. Available:
+  \url{https://doi.org/10.15607/rss.2024.xx.087}
 \BIBentrySTDinterwordspacing
 
 \bibitem{macga2025}
 \BIBentryALTinterwordspacing
-A.~Pertzovskiy, R.~Stern, R.~Zivan, and A.~Felner, ``{Multi-Agent Corridor Generating Algorithm},'' in \emph{Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence}, 2025, pp. 240--247. [Online]. Available: \url{https://doi.org/10.24963/ijcai.2025/28}
+A.~Pertzovskiy, R.~Stern, R.~Zivan, and A.~Felner, ``{Multi-Agent Corridor
+  Generating Algorithm},'' in \emph{Proceedings of the Thirty-Fourth
+  International Joint Conference on Artificial Intelligence}, 2025, pp.
+  240--247. [Online]. Available: \url{https://doi.org/10.24963/ijcai.2025/28}
 \BIBentrySTDinterwordspacing
 
 \bibitem{fanti2002event}
 \BIBentryALTinterwordspacing
-M.~P. Fanti, ``{Event-based controller to avoid deadlock and collisions in zone-control AGVS},'' \emph{International Journal of Production Research}, vol.~40, no.~6, pp. 1453--1478, 2002. [Online]. Available: \url{https://doi.org/10.1080/00207540110118073}
+M.~P. Fanti, ``{Event-based controller to avoid deadlock and collisions in
+  zone-control AGVS},'' \emph{International Journal of Production Research},
+  vol.~40, no.~6, pp. 1453--1478, 2002. [Online]. Available:
+  \url{https://doi.org/10.1080/00207540110118073}
 \BIBentrySTDinterwordspacing
 
 \bibitem{geozone2023}
 \BIBentryALTinterwordspacing
-K.~Lee and S.~Park, ``{Geometric Zone-Control Algorithm for Collision and Deadlock Avoidance in AGV System},'' \emph{IEEE Access}, vol.~11, pp. 131\,289--131\,301, 2023. [Online]. Available: \url{https://doi.org/10.1109/access.2023.3335843}
+K.~Lee and S.~Park, ``{Geometric Zone-Control Algorithm for Collision and
+  Deadlock Avoidance in AGV System},'' \emph{IEEE Access}, vol.~11, pp.
+  131\,289--131\,301, 2023. [Online]. Available:
+  \url{https://doi.org/10.1109/access.2023.3335843}
 \BIBentrySTDinterwordspacing
 
 \bibitem{mannucci2019provably}
 \BIBentryALTinterwordspacing
-A.~Mannucci, L.~Pallottino, and F.~Pecora, ``{Provably Safe Multi-Robot Coordination With Unreliable Communication},'' \emph{IEEE Robotics and Automation Letters}, vol.~4, no.~4, pp. 3232--3239, 2019. [Online]. Available: \url{https://doi.org/10.1109/lra.2019.2924849}
+A.~Mannucci, L.~Pallottino, and F.~Pecora, ``{Provably Safe Multi-Robot
+  Coordination With Unreliable Communication},'' \emph{IEEE Robotics and
+  Automation Letters}, vol.~4, no.~4, pp. 3232--3239, 2019. [Online].
+  Available: \url{https://doi.org/10.1109/lra.2019.2924849}
 \BIBentrySTDinterwordspacing
 
 \bibitem{vickrey1961counterspeculation}
 \BIBentryALTinterwordspacing
-W.~Vickrey, ``{COUNTERSPECULATION, AUCTIONS, AND COMPETITIVE SEALED TENDERS},'' \emph{The Journal of Finance}, vol.~16, no.~1, pp. 8--37, 1961. [Online]. Available: \url{https://doi.org/10.1111/j.1540-6261.1961.tb02789.x}
+W.~Vickrey, ``{COUNTERSPECULATION, AUCTIONS, AND COMPETITIVE SEALED TENDERS},''
+  \emph{The Journal of Finance}, vol.~16, no.~1, pp. 8--37, 1961. [Online].
+  Available: \url{https://doi.org/10.1111/j.1540-6261.1961.tb02789.x}
 \BIBentrySTDinterwordspacing
 
 \bibitem{clarke1971multipart}
-E.~H. Clarke, ``Multipart pricing of public goods,'' \emph{Public Choice}, vol.~11, no.~1, pp. 17--33, 1971.
+E.~H. Clarke, ``Multipart pricing of public goods,'' \emph{Public Choice},
+  vol.~11, no.~1, pp. 17--33, 1971.
 
 \bibitem{groves1973incentives}
-T.~Groves, ``Incentives in teams,'' \emph{Econometrica}, vol.~41, no.~4, pp. 617--631, 1973.
+T.~Groves, ``Incentives in teams,'' \emph{Econometrica}, vol.~41, no.~4, pp.
+  617--631, 1973.
 
 \bibitem{nisan2001algorithmic}
 \BIBentryALTinterwordspacing
-N.~Nisan and A.~Ronen, ``{Algorithmic Mechanism Design},'' \emph{Games and Economic Behavior}, vol.~35, no. 1-2, pp. 166--196, 2001. [Online]. Available: \url{https://doi.org/10.1006/game.1999.0790}
+N.~Nisan and A.~Ronen, ``{Algorithmic Mechanism Design},'' \emph{Games and
+  Economic Behavior}, vol.~35, no. 1-2, pp. 166--196, 2001. [Online].
+  Available: \url{https://doi.org/10.1006/game.1999.0790}
 \BIBentrySTDinterwordspacing
 
 \bibitem{green1977characterization}
-J.~Green and J.-J. Laffont, ``Characterization of satisfactory mechanisms for the revelation of preferences for public goods,'' \emph{Econometrica}, vol.~45, no.~2, pp. 427--438, 1977.
+J.~Green and J.-J. Laffont, ``Characterization of satisfactory mechanisms for
+  the revelation of preferences for public goods,'' \emph{Econometrica},
+  vol.~45, no.~2, pp. 427--438, 1977.
 
 \bibitem{myerson1983efficient}
-R.~B. Myerson and M.~A. Satterthwaite, ``Efficient mechanisms for bilateral trading,'' \emph{Journal of Economic Theory}, vol.~29, no.~2, pp. 265--281, 1983.
+R.~B. Myerson and M.~A. Satterthwaite, ``Efficient mechanisms for bilateral
+  trading,'' \emph{Journal of Economic Theory}, vol.~29, no.~2, pp. 265--281,
+  1983.
 
 \bibitem{censi2019karma}
-A.~Censi, S.~Bolognani, J.~G. Zilly, S.~S. Mousavi, and E.~Frazzoli, ``Today me, tomorrow thee: Efficient resource allocation in competitive settings using karma games,'' in \emph{Proc. IEEE Intelligent Transportation Systems Conference (ITSC)}, 2019, pp. 686--693.
+A.~Censi, S.~Bolognani, J.~G. Zilly, S.~S. Mousavi, and E.~Frazzoli, ``Today
+  me, tomorrow thee: Efficient resource allocation in competitive settings
+  using karma games,'' in \emph{Proc. IEEE Intelligent Transportation Systems
+  Conference (ITSC)}, 2019, pp. 686--693.
 
 \bibitem{elokda2024karma}
-E.~Elokda, S.~Bolognani, A.~Censi, F.~D{\"o}rfler, and E.~Frazzoli, ``A self-contained karma economy for the dynamic allocation of common resources,'' \emph{Dynamic Games and Applications}, vol.~14, no.~3, pp. 578--610, 2024.
+E.~Elokda, S.~Bolognani, A.~Censi, F.~D{\"o}rfler, and E.~Frazzoli, ``A
+  self-contained karma economy for the dynamic allocation of common
+  resources,'' \emph{Dynamic Games and Applications}, vol.~14, no.~3, pp.
+  578--610, 2024.
 
 \bibitem{bottleneckiv2023}
 \BIBentryALTinterwordspacing
-M.~Baumann, J.~Beyerer, H.~Buck, B.~Deml, S.~Ehrhardt, C.~Frese, D.~Kleiser, M.~Lauer, M.~Roschani, M.~Ruf, C.~Stiller, P.~Vortisch, and J.~Ziehn, ``{Cooperative Automated Driving for Bottleneck Scenarios in Mixed Traffic},'' in \emph{2023 IEEE Intelligent Vehicles Symposium (IV)}, 2023, pp. 1--8. [Online]. Available: \url{https://doi.org/10.1109/iv55152.2023.10186638}
+M.~Baumann, J.~Beyerer, H.~Buck, B.~Deml, S.~Ehrhardt, C.~Frese, D.~Kleiser,
+  M.~Lauer, M.~Roschani, M.~Ruf, C.~Stiller, P.~Vortisch, and J.~Ziehn,
+  ``{Cooperative Automated Driving for Bottleneck Scenarios in Mixed
+  Traffic},'' in \emph{2023 IEEE Intelligent Vehicles Symposium (IV)}, 2023,
+  pp. 1--8. [Online]. Available:
+  \url{https://doi.org/10.1109/iv55152.2023.10186638}
 \BIBentrySTDinterwordspacing
 
 \bibitem{jain1984fairness}
 \BIBentryALTinterwordspacing
-R.~Jain, D.-M. Chiu, and W.~R. Hawe, ``{A Quantitative Measure of Fairness and Discrimination for Resource Allocation in Shared Computer Systems},'' Digital Equipment Corporation, Tech. Rep. DEC-TR-301, 1984. [Online]. Available: \url{https://arxiv.org/abs/cs/9809099}
+R.~Jain, D.-M. Chiu, and W.~R. Hawe, ``{A Quantitative Measure of Fairness and
+  Discrimination for Resource Allocation in Shared Computer Systems},'' Digital
+  Equipment Corporation, Tech. Rep. DEC-TR-301, 1984. [Online]. Available:
+  \url{https://arxiv.org/abs/cs/9809099}
 \BIBentrySTDinterwordspacing
 
 \end{thebibliography}

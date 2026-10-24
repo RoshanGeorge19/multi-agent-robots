@@ -16,9 +16,58 @@ Round-2 verdict was MINOR with no unresolved major concerns.
 |---|---|---|---|
 | 1 | MAJOR | 8 major, 18 minor, 8 questions | all resolved; reviewer verified numbers against `rows.jsonl` |
 | 2 | MINOR | 1 major (stale figures — already fixed by orchestrator regeneration), 13 minor | all fixed; reviewer re-derived new Sec. V-F numbers from raw data — exact |
+| 3 | MINOR | 5 major consistency items (stale figure/table/limitations, serial-run provenance, stats claim, undisclosed draw-key collisions), 8 minor | all resolved or explicitly disclosed; cycle stops at MINOR |
 
 Artifacts: `round-1-review.md`, `round-1-response.md`,
-`round-2-review.md`, `round-2-response.md`.
+`round-2-review.md`, `round-2-response.md`,
+`round-3-review.md`, `round-3-response.md`.
+
+## Update 2026-10-24 (round 3 — post-experiment revision review)
+
+After the authors ran the serial thinking-on arms, the paired-difference
+statistics, and the commit-reveal variant, a third review verified the new
+numbers against `rows.jsonl` and found the surrounding apparatus
+(figure, table, limitations, one stats claim) had not been synchronized.
+All addressed in `round-3-response.md` and `main.tex`:
+
+- `make_figures.py` `LAT_CELLS` now includes both serial thinking-on arms
+  (`qwen3-30b-onm-s`, `qwen3.8-27b-onm-s` as "serial*"); Fig. 3
+  regenerated; caption reconciled.
+- Table II gained both serial rows + provenance footnote; the false
+  Limitations sentence ("no informative serial thinking-on measurement
+  exists") replaced.
+- qwen3.8 serial-run provenance disclosed in Sec. V-C: `wall_s=1530` vs
+  ~2495 s charged latency is consistent with a cache resume only if the
+  stopped run completed >=18/50 encounters — or with >1 worker. The
+  manuscript states both cases and shows the conclusion rests on the
+  clean qwen3-30B serial arm (16.5 s ≈ 12x break-even).
+- Sec. V-D significance corrected: the paired-t intervals exclude zero
+  for qwen3.8 and vl-12b, but Wilcoxon p-values (computed by the
+  orchestrator from `rows.jsonl`: gemma4 0.097, qwen3.8 <0.001, omni
+  0.115, vl-12b 0.113) are significant only for qwen3.8 — vl-12b's
+  interval is driven by outliers (skew -1.18). Claim now "firm for one
+  model, suggestive for a second".
+- Plain-draw disclosure: detection-time keying yields 92 distinct card
+  pairs over 200 encounters; draws are correlated; A proceeds in 120/200
+  but in 54/92 distinct pairs (1.7 SD, not 2.8). "Fair" removed
+  throughout (abstract, contributions, Sec. V-F, Discussion,
+  Conclusion); commit-reveal disclosed as 100 pairs, 55/100 for A.
+- Writer rebutted the paper's own serving claim: `stage2b.log` shows
+  vLLM batching 4 sequences, contradicting the documented "one sequence
+  at a time"; Sec. III-B now describes shared-server contention.
+- Serial-arm timeout (qwen3.8, one deadlock after a 119.5 s call)
+  explained; draw key stated as robot A's snapshot time; commit-reveal
+  run condition (nemotron-lightning, agents+raw text, `think=0` —
+  confirmed in meta.json) and Table III exclusion noted; commit prompt
+  added to Appendix A.
+- Compile clean: 8 pages, 0 overfull, 0 undefined refs; all `[XX]`
+  placeholders filled.
+
+Open pre-submission items: release tag/DOI pin; qwen3.8 serial-run
+worker-count provenance (needs author memory/shell history); whether
+the stopped-run calls were made under uncontended serial conditions;
+confirmation of the `--no-think` flag on the commit run (`think=0`
+charged latency is confirmed in meta.json).
 
 ## What changed (both rounds)
 

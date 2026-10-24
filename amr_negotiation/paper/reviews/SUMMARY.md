@@ -15,9 +15,42 @@ Round-2 verdict was MINOR with no unresolved major concerns.
 |---|---|---|---|
 | 1 | MAJOR | 5 major, 17 minor, 8 questions | all majors resolved or resolved-by-narrowing |
 | 2 | MINOR | 9 new issues (all minor) | all fixed; reviewer re-verified edits against the manuscript and repo |
+| 3 | MINOR | 10 issues (2 blocking: protocol timers undocumented; T-junction discrepancy not split by variant) | all resolved or explicitly bounded; cycle stops at MINOR |
 
 Artifacts: `round-1-review.md`, `round-1-response.md`,
-`round-2-review.md`, `round-2-response.md`.
+`round-2-review.md`, `round-2-response.md`,
+`round-3-review.md`, `round-3-response.md`.
+
+## Update 2026-10-24 (round 3 — post-experiment revision review)
+
+After the authors filled the checklist numbers and re-ran experiments, a
+third review verified the filled values and found consistency-level issues.
+All addressed in `round-3-response.md` and `main.tex`:
+
+- Protocol timing parameters added (BID resend 0.3 s, STATE freshness
+  1.0 s, park timeout U[6,12] s, neg/proceed timeouts 3/60 s, 10 s
+  backoff) — reviewer M1.
+- T-junction discrepancy split by variant: exit −260.0 s / turn-in
+  −345.4 s; exit mechanism traced to a release-timing race; turn-in
+  share explicitly stated as unexplained — reviewer M2/M3.
+- STATE freshness under loss clarified; fixed-priority/rulebook vs.
+  cost-bid yielder roles in exit runs explained; `gz_min_clearance`
+  defined against rectangle collision checks; bay-sensing count
+  corrected (A 6/6, B 5/6); hold/share-on-detect batch marked as
+  outside the 460 Gazebo runs.
+- Writer caught a source-comment bug: a `% VERIFIED` comment had
+  commented out the rest of a line, hiding four sentences of the
+  hold-mode paragraph from the rendered PDF. Now visible.
+- Page limit restored: the new content pushed the letter to 9 pages;
+  restored to 8 pages via float-spacing/caption tightening,
+  microtype, `\scriptsize` bibliography, `\arraystretch` 0.9, ~6 lines
+  of prose compression, and `\enlargethispage` on the refs page.
+  Compile clean: 8 pages, 0 overfull, 0 undefined refs.
+
+Open pre-submission items (unchanged): real artifact URL/DOI; `% TODO` /
+`% VERIFIED` / DRAFT annotation cleanup; release of convoy/T-junction
+per-episode rows and bid-capture logs; raw traces for the turn-in
+mechanism and the hold-mode detection-distance discrepancy.
 
 ## What changed (both rounds)
 
