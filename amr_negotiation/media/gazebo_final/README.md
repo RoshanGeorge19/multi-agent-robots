@@ -1,3 +1,5 @@
+[↑ Project hierarchy](../../PROJECT_HIERARCHY.md) · [Parent: media](../README.md)
+
 # Gazebo clips on the final code
 
 Ten Gazebo Harmonic runs (TurtleBot3 Waffle, ROS 2 Jazzy) recorded with `record:=true` from the overhead camera,

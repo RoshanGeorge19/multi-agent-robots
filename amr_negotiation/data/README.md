@@ -1,3 +1,5 @@
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
+
 # Data
 
 ```
@@ -13,6 +15,10 @@ data/
     gazebo/                per-run Gazebo-vs-2D CSVs, gazebo_all.md summary, S1 sweep JSON
     llm/                   llm_<tag>.md, one table per LLM run
 ```
+
+Folder READMEs:
+- [`raw/`](raw/README.md): [`classical/`](raw/classical/README.md), [`gazebo/`](raw/gazebo/README.md), [`llm/`](raw/llm/README.md)
+- [`tables/`](tables/README.md): [`classical/`](tables/classical/README.md), [`classical_r2/`](tables/classical_r2/README.md), [`gazebo/`](tables/gazebo/README.md), [`llm/`](tables/llm/README.md)
 
 **Conventions** (details in `raw/README.md`):
 - *Success*: every robot reaches its goal within 180 s with no collision.

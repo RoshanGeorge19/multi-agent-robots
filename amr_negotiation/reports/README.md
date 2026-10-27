@@ -1,3 +1,5 @@
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
+
 # Study reports
 
 Each study was written up as it was run. The reports explain the question, the method, the bugs found along the
@@ -10,7 +12,7 @@ way and the fixes they motivated. Read them for the reasoning behind a result.
 > - the S9 section of `02` is superseded by `04`;
 > - the "after" numbers in `07` predate the final T-junction table, `data/tables/classical/tjunction_goal.txt`.
 
-## `classical/`: 2D simulator studies (paper 1)
+## [`classical/`](classical/README.md): 2D simulator studies (paper 1)
 
 | Report | Was | Question |
 |---|---|---|
@@ -26,7 +28,7 @@ way and the fixes they motivated. Read them for the reasoning behind a result.
 | [`10_explore_mode.md`](classical/10_explore_mode.md) | `REPORT_explore.md` | Mapping as you go, share-on-detect, hold-for-map (2D and Gazebo) |
 | [`11_learned_negotiator.md`](classical/11_learned_negotiator.md) | `REPORT_learned.md` | Tabular learned negotiator, in and out of distribution |
 
-## `gazebo/`: ROS 2 + Gazebo validation
+## [`gazebo/`](gazebo/README.md): ROS 2 + Gazebo validation
 
 | Report | Was | Question |
 |---|---|---|
@@ -36,6 +38,6 @@ way and the fixes they motivated. Read them for the reasoning behind a result.
 The final-code Gazebo validation (460 runs over every study) is summarised in
 [`data/tables/gazebo/gazebo_all.md`](../data/tables/gazebo/gazebo_all.md) and in paper 1's "Gazebo validation" section.
 
-## `llm/`: LLM/VLM negotiators (paper 2)
+## [`llm/`](llm/README.md): LLM/VLM negotiators (paper 2)
 
 [`llm/README.md`](llm/README.md) indexes the ~55 LLM runs by stage and model.

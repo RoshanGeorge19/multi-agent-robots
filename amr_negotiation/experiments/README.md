@@ -1,3 +1,5 @@
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
+
 # Experiments
 
 Every script that produced the released results. Run all commands **from the repo root** after
@@ -12,7 +14,7 @@ experiments/
   llm/         LLM/VLM negotiator study (paper 2)    -> data/raw/llm/, data/tables/llm/
 ```
 
-## `classical/`: 2D studies
+## [`classical/`](classical/README.md): 2D studies
 
 | Script | Studies | Writes | Report |
 |---|---|---|---|
@@ -30,7 +32,7 @@ experiments/
 speeds them up on bigger machines without changing results. For example, S1 (2,940 episodes) reruns in about 40 s and matches
 `data/raw/classical/S1_baseline.csv.gz` row for row.
 
-## `analysis/`: tables and figures
+## [`analysis/`](analysis/README.md): tables and figures
 
 | Script | Input | Output |
 |---|---|---|
@@ -43,7 +45,7 @@ speeds them up on bigger machines without changing results. For example, S1 (2,9
 `analyse.py` and `analyse_r2.py` read uncompressed CSVs. To re-analyse the released data, gunzip
 `data/raw/classical/*.csv.gz` into a scratch folder first.
 
-## `gazebo/`: Gazebo validation (needs Docker and the `amrneg` image)
+## [`gazebo/`](gazebo/README.md): Gazebo validation (needs Docker and the `amrneg` image)
 
 | File | Role |
 |---|---|
@@ -59,7 +61,7 @@ speeds them up on bigger machines without changing results. For example, S1 (2,9
 
 Reports: `reports/gazebo/` and the Gazebo sections of `reports/classical/10_explore_mode.md`.
 
-## `llm/`: LLM/VLM negotiators (needs an OpenAI-compatible server)
+## [`llm/`](llm/README.md): LLM/VLM negotiators (needs an OpenAI-compatible server)
 
 `llm_negotiation.py --tag TAG --model NAME --base-url URL --n 100 --variants ... --think 0|measured` runs paired
 encounters (seeds 100000+). For each encounter it runs the baselines, the best forced yielder and the chosen LLM variants. It writes

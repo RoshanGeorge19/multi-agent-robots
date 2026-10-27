@@ -1,9 +1,11 @@
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
+
 # Configs
 
 YAML inputs to the simulators. Any scenario field can be overridden on the command line with
 `--set key.path=value`, e.g. `--set bays.0.x=2.5 comms.loss=0.3`.
 
-## `scenarios/`: corridor layouts and robots
+## [`scenarios/`](scenarios/README.md): corridor layouts and robots
 
 | File | Layout | Robots | Used by |
 |---|---|---|---|
@@ -18,12 +20,12 @@ The top-level keys are geometry (`length`, `width`, `bays`, `room_*`), `robot` (
 jitter, loss, STATE rate), `agents`, and the optional `agent_params`, `blocked_bays` and `despawn_done`. Field definitions are in
 `amr_negotiation/geometry.py`.
 
-## `rulebooks/`: rule orders for `rule_based`
+## [`rulebooks/`](rulebooks/README.md): rule orders for `rule_based`
 
 - `default.yaml`: `no_refuge` → `urgency` → `loaded` → `first_in_corridor` → `refuge_behind_within` → `lower_id_priority`. This is also the fallback for `llm` and `reservation`.
 - `proximity_first.yaml`: puts `closest_refuge` ahead of seniority.
 
-## `sweeps/`: inputs to `amrneg-sweep`
+## [`sweeps/`](sweeps/README.md): inputs to `amrneg-sweep`
 
 Each file defines policies × a factorial `grid` of overrides × per-seed `random` jitter. Paths inside a sweep
 are resolved relative to `configs/`.

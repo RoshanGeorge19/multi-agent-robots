@@ -1,4 +1,8 @@
+[↑ Project hierarchy](../../PROJECT_HIERARCHY.md) · [Parent: data](../README.md)
+
 # Raw per-episode results
+
+Subfolders: [`classical/`](classical/README.md) (2D studies), [`gazebo/`](gazebo/README.md) (Gazebo runs) and [`llm/`](llm/README.md) (LLM runs). This page is the provenance record for the classical and Gazebo files.
 
 One CSV row per simulated episode (S10: per encounter sequence / encounter). All files were produced on branch
 `devin/1792011536-unified`, which merges PRs #15–#17 and #19–#21 onto `main`.

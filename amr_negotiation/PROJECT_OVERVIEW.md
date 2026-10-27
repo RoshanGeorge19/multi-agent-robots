@@ -64,7 +64,7 @@ These siblings exist only upstream; the local repo contains just the negotiation
 
 ### 2.3 Repository layout
 
-Each top-level folder has its own README. `README.md` has the one-table map.
+Every folder has its own README. [`PROJECT_HIERARCHY.md`](PROJECT_HIERARCHY.md) is the full map, with links to all of them.
 
 ```
 amr_negotiation/           core Python package (≈2.6k LOC)
@@ -298,8 +298,8 @@ Policy letters follow paper 1, Table I: R reactive, F fixed priority, D default 
   - `-onm/-offm`: measured latency; `-s` means serial;
   - `-vlm`: global-image arms;
   - `-ego`: egocentric agents;
-  - `-nonce`: hidden draw;
-  - `-silent`: visible draw;
+  - `-nonce`: visible draw (rule and cards in the prompt);
+  - `-silent`: hidden draw (prompt unchanged);
   - `-commit`: commit-reveal draw.
 
 | Stage | Arm | n |

@@ -8,22 +8,23 @@ The same agent code (`amr_negotiation/agent.py`) drives a fast 2D Monte Carlo si
 Gazebo Harmonic stack. On top of it sit ten decision policies, about 20 studies with released per-episode data, and
 two paper drafts (classical policies; LLM/VLM negotiators).
 
-**New here?** Read [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) for the full picture: architecture, metrics,
+**New here?** Start with [`PROJECT_HIERARCHY.md`](PROJECT_HIERARCHY.md), the map of every folder with a link to
+its README. Then read [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) for the full picture: architecture, metrics,
 every experiment and its headline result, and the open issues.
 
 ## Repository map
 
 | Folder | What is in it | Start with |
 |---|---|---|
-| [`amr_negotiation/`](amr_negotiation) | Core Python package: geometry, cost model, policies, agent state machine, 2D simulator, sweep/CLI tools, Gazebo world generator | `agent.py`, `policies.py` |
+| [`amr_negotiation/`](amr_negotiation/README.md) | Core Python package: geometry, cost model, policies, agent state machine, 2D simulator, sweep/CLI tools, Gazebo world generator | [`amr_negotiation/README.md`](amr_negotiation/README.md) |
 | [`configs/`](configs) | YAML inputs: `scenarios/` (corridor layouts and robots), `rulebooks/` (rule-based policy orders), `sweeps/` (Monte Carlo sweep definitions) | [`configs/README.md`](configs/README.md) |
 | [`experiments/`](experiments) | Scripts that ran every study: `classical/` (2D studies), `analysis/` (tables and figures from raw data), `gazebo/` (Gazebo batches and 2D-vs-Gazebo comparison), `llm/` (LLM/VLM study) | [`experiments/README.md`](experiments/README.md) |
 | [`data/`](data) | Results: `raw/` (per-episode CSV / JSONL, the source of truth) and `tables/` (generated summary tables and figures) | [`data/README.md`](data/README.md) |
 | [`reports/`](reports) | Written study reports, one per study, in the order they were done | [`reports/README.md`](reports/README.md) |
 | [`papers/`](papers) | Paper 1 (RA-L letter, classical policies) and paper 2 (T-ASE, LLM/VLM negotiators), with their review cycles | [`papers/README.md`](papers/README.md) |
-| [`docs/`](docs) | Literature review, LLM experiment plan, local-LLM how-to | `literature_review.md` |
-| [`tests/`](tests) | pytest suite for the core package and the LLM adapter | |
-| [`ros2_ws/`](ros2_ws), [`docker/`](docker) | ROS 2 package (agent, referee and recorder nodes, launch file) and the Gazebo Docker image | |
+| [`docs/`](docs/README.md) | Literature review, LLM experiment plan, local-LLM how-to | [`docs/README.md`](docs/README.md) |
+| [`tests/`](tests/README.md) | pytest suite for the core package and the LLM adapter | [`tests/README.md`](tests/README.md) |
+| [`ros2_ws/`](ros2_ws/README.md), [`docker/`](docker/README.md) | ROS 2 package (agent, referee and recorder nodes, launch file) and the Gazebo Docker image | [`ros2_ws/README.md`](ros2_ws/README.md), [`docker/README.md`](docker/README.md) |
 | [`media/`](media) | Gazebo and 2D videos, with provenance READMEs | [`media/README.md`](media/README.md) |
 
 ## Quick start (2D, no ROS)

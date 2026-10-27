@@ -1,3 +1,5 @@
+[↑ Project hierarchy](../../PROJECT_HIERARCHY.md) · [Parent: reports](../README.md)
+
 # LLM/VLM negotiator runs (paper 2)
 
 There is no hand-written report for this study. The write-up is `papers/paper2_tase/main.tex`, and the plan is
@@ -22,9 +24,9 @@ There is no hand-written report for this study. The write-up is `papers/paper2_t
 | `-offm-s` / `-onm-s` | 2c | as above, **serial** (one episode at a time, giving the deployed latency) |
 | `-vlm` | 4, vision | mediator: text+plans vs global image only vs image + raw text |
 | `-ego` | 5, egocentric agents | agents: raw text, plans, egocentric image |
-| `-nonce` | 6, hidden draw | agents: random hash tiebreak instead of the rulebook fallback (prompt unchanged) |
-| `-silent` | 7, visible draw | agents: the tiebreak rule and card values shown in the prompt |
-| `-commit` | 7, commit-reveal | agents, raw text: commit-reveal tiebreak (`nemotron-lightning` only) |
+| `-nonce` | 6, visible draw | agents: random hash tiebreak instead of the rulebook fallback, with the rule and card values shown in the prompt. Contains its own rulebook arm (`llm_agents_img`) |
+| `-silent` | 7, hidden draw | agents: the same hash tiebreak, prompt unchanged. Its rulebook arm (`llm_agents_img`) shares cached answers with the draw arm |
+| `-commit` | 7, commit-reveal | agents, raw text: commit-reveal tiebreak, visible (`llm_agents_commit`) and hidden (`llm_agents_csilent`); `nemotron-lightning` only |
 | `-smoke`, `-smoke-think0` | 0, smoke test | Qwen2.5-1.5B on llama.cpp, n = 10 |
 
 ## Runs by model

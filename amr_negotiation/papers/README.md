@@ -1,9 +1,11 @@
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
+
 # Papers
 
 | Folder | Manuscript | Venue | Status |
 |---|---|---|---|
-| `paper1_ral/` | *Who Backs Into the Bay? Benchmarking Negotiation Policies for Head-On Robot Encounters in Single-Lane Corridors* | IEEE RA-L (letter, 8 pages) | Draft; 3 adversarial review rounds, final verdict MINOR |
-| `paper2_tase/` | *Deliberation Costs: LLM and VLM Negotiators for Head-On Robot Encounters in Single-Lane Corridors* | IEEE T-ASE | Draft; 3 adversarial review rounds, final verdict MINOR. Companion to paper 1. |
+| [`paper1_ral/`](paper1_ral/README.md) | *Who Backs Into the Bay? Benchmarking Negotiation Policies for Head-On Robot Encounters in Single-Lane Corridors* | IEEE RA-L (letter, 8 pages) | Draft; 3 adversarial review rounds, final verdict MINOR |
+| [`paper2_tase/`](paper2_tase/README.md) | *Deliberation Costs: LLM and VLM Negotiators for Head-On Robot Encounters in Single-Lane Corridors* | IEEE T-ASE | Draft; 3 adversarial review rounds, final verdict MINOR. Companion to paper 1. |
 
 Each folder contains:
 

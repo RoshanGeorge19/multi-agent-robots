@@ -1,9 +1,12 @@
-# Media
+[↑ Project hierarchy](../PROJECT_HIERARCHY.md) · [Repo README](../README.md)
 
-Gazebo Harmonic recordings (overhead camera, sped up) of two TurtleBot3 Waffles in `configs/scenarios/corridor_single_bay.yaml`, seed 0. Recorded with `ros2 launch amr_negotiation_ros corridor.launch.py policy:=<P> record:=true` on commit `ba2ca27` (the initial PR #1 code). Later protocol changes (decision commit, explore mode, etc.) are not in these clips. See `studies/` for results on the final code.
+# `media/`: videos
 
-| File | Policy | Outcome |
+| Folder | What is available | Code version |
 |---|---|---|
-| `gazebo/corridor_single_bay_cost_bid_s0.mp4` (`gz_cost_bid.webp` preview) | `cost_bid` | A yields into the bay; makespan 59.9 s |
-| `gazebo/corridor_single_bay_rule_based_s0.mp4` (`gz_rule_based.webp`) | `rule_based` (default rulebook) | B yields under `first_in_corridor`; 62.2 s |
-| `gazebo/corridor_single_bay_reactive_s0.mp4` (`gz_reactive.webp`) | `reactive` (no messages) | Both give way (B reverses ~3 m to its end room, then A pulls into the bay); 126.8 s |
+| [`2d_sim/`](2d_sim/README.md) | 3 side-by-side 2D-simulator replays (8× speed): the four policies in the single-bay corridor; T-junction and convoy (`cost_bid` vs `group_bid`); a blocked bay | final code (`c99270c`) |
+| [`gazebo/`](gazebo/README.md) | 3 early Gazebo clips of the single-bay corridor: `cost_bid`, `rule_based`, `reactive` | initial code (`ba2ca27`) |
+| [`gazebo_final/`](gazebo_final/README.md) | 10 Gazebo clips covering corridor, blocked bay, convoy, T-junction (exit, turn-in), noisy bids, Clarke misreport and explore modes. Each has its result JSON and a `.webp` preview | final code (`c99270c`) |
+
+Each folder's README gives the scenario, seed, policy and outcome of every clip. The `.webp` files are animated
+previews that play in a browser or on GitHub.
