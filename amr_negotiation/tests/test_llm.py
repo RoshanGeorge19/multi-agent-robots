@@ -10,7 +10,7 @@ from amr_negotiation.geometry import load_scenario
 from amr_negotiation.sim2d import run_episode
 
 ROOT = Path(__file__).resolve().parents[1]
-SC = ROOT / "scenarios" / "corridor_single_bay.yaml"
+SC = ROOT / "configs" / "scenarios" / "corridor_single_bay.yaml"
 
 
 @pytest.fixture(autouse=True)

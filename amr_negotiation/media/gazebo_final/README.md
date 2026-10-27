@@ -3,7 +3,7 @@
 Ten Gazebo Harmonic runs (TurtleBot3 Waffle, ROS 2 Jazzy) recorded with `record:=true` from the overhead camera,
 on main `c99270c`. Two runs at a time, each with its own `ROS_DOMAIN_ID` / `GZ_PARTITION`. Each `.mp4` has its
 result JSON (same name) and an animated `.webp` preview (8 fps, 480 px wide). Outcomes below come from those JSONs.
-"Batch" is the unrecorded run of the same case in the 460-run final-code batch (`studies/results_raw/gazebo_current.jsonl.gz`).
+"Batch" is the unrecorded run of the same case in the 460-run final-code batch (`data/raw/gazebo/gazebo_current.jsonl.gz`).
 
 | Clip | Scenario | Policy | Seed | Success / collision | Yielder → refuge | Makespan [s] | Batch makespan [s] | What it shows |
 |---|---|---|---|---|---|---|---|---|

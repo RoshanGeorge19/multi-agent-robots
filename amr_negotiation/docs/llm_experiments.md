@@ -2,7 +2,7 @@
 
 Companion to [docs/llm_local.md](llm_local.md). Goal: characterize how LLM and VLM negotiators compare
 with the classical policies (`cost_bid`, rulebook, fixed priority) and the best-forced-yielder reference
-on the corridor benchmark. All runs use the 2D simulator (`studies/llm_negotiation.py`), the same seed
+on the corridor benchmark. All runs use the 2D simulator (`experiments/llm/llm_negotiation.py`), the same seed
 draws for every model (paired comparisons), and the existing report generator.
 
 Models are served locally on the GB10 by the `nemoclaw-vllm` container (OpenAI-compatible at
@@ -69,6 +69,6 @@ per-robot prompting (ties to S9), multi-turn natural-language dialogue over the 
 - The vLLM container serves with `--max-num-seqs 1`; use `--workers 1` (extra workers just queue).
 - `--seed0` stays at 100000 for every run: model comparisons are paired on identical encounters.
 - Hosted model: `AMRNEG_LLM_URL=https://integrate.api.nvidia.com/v1 AMRNEG_LLM_MODEL=nvidia/nemotron-3-super-120b-a12b AMRNEG_LLM_API_KEY=$NVIDIA_INFERENCE_API_KEY`; add `--no-constrain` if the endpoint rejects `response_format`.
-- Outputs land in `studies/results_raw/llm/<tag>/` + `studies/report/llm_<tag>.md`; prompt caches make
+- Outputs land in `data/raw/llm/<tag>/` + `data/tables/llm/llm_<tag>.md`; prompt caches make
   reruns replay-free.
 - Review checkpoint after stages 0–2 + 4: pick Stage 3/5 scope from the results.

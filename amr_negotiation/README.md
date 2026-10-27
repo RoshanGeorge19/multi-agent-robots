@@ -1,16 +1,44 @@
 # AMR negotiation in constrained spaces
 
-A research framework for studying how autonomous mobile robots negotiate right of way when space is tight.
-The first scenario has two **TurtleBot3 Waffles** meeting head-on in a single-lane corridor. A pull-in bay
-lets one robot make way, but only if the robots decide which of them should use it.
+A research benchmark for how autonomous mobile robots negotiate right of way when space is tight. Two
+**TurtleBot3 Waffles** meet head-on in a single-lane corridor. One must reverse into a pull-in bay (or back out to
+an end room) so the other can pass. **Who should yield, into which refuge, and how do the robots agree?**
 
-The same negotiation code (`amr_negotiation/agent.py`) drives two simulators:
+The same agent code (`amr_negotiation/agent.py`) drives a fast 2D Monte Carlo simulator and a ROS 2 Jazzy +
+Gazebo Harmonic stack. On top of it sit ten decision policies, about 20 studies with released per-episode data, and
+two paper drafts (classical policies; LLM/VLM negotiators).
 
-| Layer | What it is for |
-|---|---|
-| `amr_negotiation` (pure Python) | Scenario geometry, cost model, message protocol, policies and the agent state machine |
-| `sim2d` | A fast 2D unicycle simulator using the Waffle's dimensions and limits, for Monte Carlo sweeps (thousands of episodes per minute) |
-| `ros2_ws/src/amr_negotiation_ros` | ROS 2 Jazzy + Gazebo Harmonic: a generated world, two namespaced Waffles, one agent node per robot, a referee and an MP4 recorder |
+**New here?** Read [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) for the full picture: architecture, metrics,
+every experiment and its headline result, and the open issues.
+
+## Repository map
+
+| Folder | What is in it | Start with |
+|---|---|---|
+| [`amr_negotiation/`](amr_negotiation) | Core Python package: geometry, cost model, policies, agent state machine, 2D simulator, sweep/CLI tools, Gazebo world generator | `agent.py`, `policies.py` |
+| [`configs/`](configs) | YAML inputs: `scenarios/` (corridor layouts and robots), `rulebooks/` (rule-based policy orders), `sweeps/` (Monte Carlo sweep definitions) | [`configs/README.md`](configs/README.md) |
+| [`experiments/`](experiments) | Scripts that ran every study: `classical/` (2D studies), `analysis/` (tables and figures from raw data), `gazebo/` (Gazebo batches and 2D-vs-Gazebo comparison), `llm/` (LLM/VLM study) | [`experiments/README.md`](experiments/README.md) |
+| [`data/`](data) | Results: `raw/` (per-episode CSV / JSONL, the source of truth) and `tables/` (generated summary tables and figures) | [`data/README.md`](data/README.md) |
+| [`reports/`](reports) | Written study reports, one per study, in the order they were done | [`reports/README.md`](reports/README.md) |
+| [`papers/`](papers) | Paper 1 (RA-L letter, classical policies) and paper 2 (T-ASE, LLM/VLM negotiators), with their review cycles | [`papers/README.md`](papers/README.md) |
+| [`docs/`](docs) | Literature review, LLM experiment plan, local-LLM how-to | `literature_review.md` |
+| [`tests/`](tests) | pytest suite for the core package and the LLM adapter | |
+| [`ros2_ws/`](ros2_ws), [`docker/`](docker) | ROS 2 package (agent, referee and recorder nodes, launch file) and the Gazebo Docker image | |
+| [`media/`](media) | Gazebo and 2D videos, with provenance READMEs | [`media/README.md`](media/README.md) |
+
+## Quick start (2D, no ROS)
+
+```bash
+pip install -e .[dev]
+pytest -q
+
+amrneg-run configs/scenarios/corridor_single_bay.yaml --policy rule_based --events --plot ep.png --gif ep.gif
+amrneg-run configs/scenarios/corridor_single_bay.yaml --policy cost_bid --set bays.0.x=2.0 comms.loss=0.5
+amrneg-sweep configs/sweeps/bay_position.yaml --out results     # CSV per episode + summary CSV + plot
+```
+
+Any scenario field can be overridden with `--set key.path=value`. `results/` is git-ignored scratch space. The
+released results live in `data/`. To rerun a study, see [`experiments/README.md`](experiments/README.md).
 
 ## Scenario
 
@@ -19,110 +47,58 @@ The same negotiation code (`amr_negotiation/agent.py`) drives two simulators:
    A ->            corridor 8 m x 0.65 m            <- B
 ```
 
-- Corridor width is 0.65 m. One Waffle (0.306 m wide, about 0.25 m swept radius) fits; two cannot pass each other.
-- The bay is 0.8 m wide and 0.6 m deep, and its position and side are configurable. Any number of bays is allowed.
-- The end rooms also count as refuges: a robot can back all the way out of the corridor.
-- Each robot has `start_delay`, `urgency`, `loaded`, and its own speed limits.
+- The corridor is 0.65 m wide. One Waffle (0.306 m wide, about 0.25 m swept radius) fits; two cannot pass.
+- Bays are 0.8 m wide and 0.6 m deep. Their position, side and number are configurable. The end rooms also count as refuges.
+- Each robot has `start_delay`, `urgency`, `loaded` and its own speed limits.
 - Comms are a broadcast bus with configurable latency, jitter and packet loss.
-
-Scenario files are in `scenarios/*.yaml`. Any field can be overridden from the CLI with `--set`, e.g. `--set bays.0.x=2.5 comms.loss=0.3`.
+- Variants in `configs/scenarios/` add a second bay, an urgent and loaded robot, a two-robot convoy, and a T-junction (exit and turn-in).
 
 ## Policies
 
 | `policy` | Communication | Who yields |
 |---|---|---|
-| `reactive` | none | Each robot stops when blocked. After a random patience timeout it backs up to the nearest refuge behind it. This is the baseline for deadlock and livelock. |
-| `fixed_priority` | state exchange | The robot with the higher ID always yields |
-| `rule_based` | state exchange | An ordered rulebook (YAML, see below). The first rule that tells the robots apart decides, and the log records which rule it was. |
-| `cost_bid` | state + bids | Each robot bids its cost of yielding (predicted total delay for the best feasible refuge). The lower bid yields. |
-| `forced` | state exchange | A named robot yields. This policy is used by the oracle. |
-| `llm` | state exchange | A local or remote LLM (OpenAI-compatible, e.g. llama.cpp) picks the yielder, either as a mediator or as one prompt per robot. On server errors, bad JSON or disagreement it falls back to the rulebook. See [docs/llm_local.md](docs/llm_local.md). |
-| `oracle` | — | Hindsight baseline: simulates each possible yielder and keeps the best outcome |
+| `reactive` | none | Stops when blocked; after a random patience time, backs up to the nearest refuge. The deadlock/livelock baseline. |
+| `fixed_priority` | state + bids | The robot with the higher ID always yields. |
+| `rule_based` | state + bids | An ordered rulebook (`configs/rulebooks/`); the first rule that tells the robots apart decides. |
+| `reservation` | state | First come, first served on the corridor; a robot outside waits in its end room while an oncoming robot is inside. |
+| `cost_bid` | state + bids | Each robot bids the predicted urgency-weighted cost of yielding; the lower bid yields. |
+| `group_bid` | state + bids | Like `cost_bid`, but a convoy bids as a group, including its followers. |
+| `clarke` | state + bids | Clarke-pivot (VCG) mechanism: the cheapest outcome wins and each robot pays its externality, so truthful reporting is dominant. |
+| `learned` | state + bids | A tabular contextual bandit trained in the 2D simulator. |
+| `llm` | state + bids | An LLM/VLM over an OpenAI-compatible endpoint picks the yielder. It runs as a mediator or one call per robot, with text or image input. See [`docs/llm_local.md`](docs/llm_local.md). |
+| `forced` / `oracle` | — | Forced yielder; the hindsight reference keeps the better of "A yields" and "B yields". |
 
-Both robots run the same deterministic decision function on the same pair of snapshots, so they agree without
-needing a third message. If no BID arrives within `neg_timeout`, the agent falls back to reactive behaviour.
-
-### Rulebooks
-
-```yaml
-# rulebooks/default.yaml
-rules:
-  - rule: no_refuge            # a robot with no feasible refuge cannot yield
-  - rule: urgency              # urgency difference > threshold: the less urgent robot yields
-    threshold: 0.5
-  - rule: loaded               # an empty robot yields to a loaded one
-  - rule: first_in_corridor    # the robot that entered the corridor first keeps right of way
-    min_gap: 1.0
-  - rule: refuge_behind_within # a robot with a refuge behind it within `distance` m yields
-    distance: 2.0
-  - rule: lower_id_priority    # deterministic final tie-break
-```
-
-Other available rules: `closest_refuge` (see `rulebooks/proximity_first.yaml`). Pass a rulebook with
-`--rulebook path.yaml`, or set `rulebook:` on a policy in a sweep file.
+Both robots run the same deterministic decision function on the same pair of snapshots, so they agree without a
+third message. Under message loss, three safeguards apply (commit, state guard, bay check), with timeouts that fall back to
+reactive behaviour.
 
 ### Metrics (per episode)
 
-`success`, `deadlock`, `collision`, `makespan`, `total_delay` / `max_delay` (both measured against each
-robot's free-flow travel time), `min_clearance`, `reverse_dist`, `n_yields`, `msgs`, `msgs_dropped`,
-`time_to_decide`, `agreement` (whether both robots reached the same decision), `yielder`, `refuge`, `rule`, and the full event log.
-
-## Quick start (2D, no ROS)
-
-```bash
-cd amr_negotiation
-pip install -e .[dev]
-pytest -q
-
-amrneg-run scenarios/corridor_single_bay.yaml --policy rule_based --events --plot ep.png --gif ep.gif
-amrneg-run scenarios/corridor_single_bay.yaml --policy cost_bid --set bays.0.x=2.0 comms.loss=0.5
-amrneg-sweep sweeps/bay_position.yaml --out results     # CSV per episode + summary CSV + plot
-amrneg-sweep sweeps/comms_loss.yaml --out results
-```
-
-A sweep file lists the policies, a factorial `grid` of overrides and per-seed `random` ranges (see the docstring in `sweep.py`).
+`success`, `deadlock`, `collision`, `makespan`, `total_delay` / `max_delay` (against each robot's free-flow
+travel time), urgency-weighted delay, `min_clearance`, `reverse_dist`, `n_yields`, `msgs`, `msgs_dropped`,
+`time_to_decide`, `agreement`, `yielder`, `refuge`, `rule`, and the event log. Studies report **excess delay** over the best
+forced yielder, paired per encounter. See `PROJECT_OVERVIEW.md` §7.
 
 ## Gazebo (ROS 2 Jazzy + Gazebo Harmonic, Docker)
 
 ```bash
-cd amr_negotiation
 docker build -f docker/Dockerfile -t amrneg .
 docker run --rm -v $PWD/results:/results amrneg \
   ros2 launch amr_negotiation_ros corridor.launch.py \
-    scenario:=/amr_negotiation/scenarios/corridor_single_bay.yaml policy:=rule_based record:=true
+    scenario:=/amr_negotiation/configs/scenarios/corridor_single_bay.yaml policy:=rule_based record:=true
 # -> results/corridor_single_bay_rule_based_s0.{json,mp4}
 ```
 
-- `amrneg-world` writes the world SDF and `ros_gz_bridge` YAML from a scenario. The world contains the corridor
-  walls, a bay floor marker, an optional overhead camera, and one TurtleBot3 Waffle per agent. Each robot is an inlined
-  copy of the official `turtlebot3_gazebo` model, with topics `/<id>/{cmd_vel,odom,scan,ground_truth}`, the RGB camera and
-  IMU removed, and an OdometryPublisher for ground-truth world pose.
-- The world starts paused. The referee unpauses it once every agent node is up, so that `start_delay` is measured from t = 0.
-- `agent_node` runs on each robot. Pose comes from ground truth. The lidar scan is projected into the world frame,
-  points on the known walls are removed, and the remaining points are clustered into peer robots. Bus messages are JSON on
-  `/amr_negotiation/bus` with the scenario's emulated latency and loss.
-- The referee logs the event stream, minimum distance, collisions and reversing distance. It writes a result JSON with the same
-  keys as `sim2d`, then shuts the launch down.
-- Pass `gui:=true` to run with the Gazebo GUI (needs X forwarding). For multiple simultaneous containers, set distinct
-  `-e ROS_DOMAIN_ID=.. -e GZ_PARTITION=..`.
-- Headless rendering (lidar and camera) uses Mesa llvmpipe. Without a GPU, recording a run takes several times real time.
+- `amrneg-world` writes the world SDF and the `ros_gz_bridge` YAML from a scenario.
+- `agent_node` runs per robot. Pose comes from ground truth; the lidar is clustered into peers after the known walls are removed.
+- The referee writes a result JSON with the same keys as `sim2d`.
+- Pass `gui:=true` for the Gazebo GUI. For parallel containers, set distinct `ROS_DOMAIN_ID` and `GZ_PARTITION` values.
+- Batch tooling for the 460-run Gazebo validation is in [`experiments/gazebo/`](experiments/gazebo).
 
-## Layout
+## Known limitations
 
-```
-amr_negotiation/      core package (geometry, planner, policies, agent, sim2d, sweep, viz, gzworld, cli)
-scenarios/            scenario YAMLs
-rulebooks/            rule-based policy configs
-sweeps/               sweep definitions
-tests/                pytest suite
-ros2_ws/src/amr_negotiation_ros/   ROS 2 nodes + launch
-docker/               Dockerfile + entrypoint
-```
-
-## Known limitations and next steps
-
-- In 2D, robots are circles on a unicycle model with acceleration limits, and perception is ideal (peer outlines
-  within lidar range). Gazebo adds real contact physics, wheel dynamics and lidar noise.
-- The agent uses ground-truth pose in Gazebo. Swapping in AMCL or SLAM localisation is a natural robustness study.
-- The protocol is pairwise. Conflicts among three or more robots, junctions and doorways are planned variations.
-- Other policies to add: auctions, multi-turn LLM dialogue over the comms channel, and MARL. Scenario variations: heterogeneous robots (Burger vs Waffle), adversarial or selfish agents.
+- **Simulation only.** There are no physical robot trials. Gazebo uses ground-truth pose.
+- **The 2D simulator is idealised.** Robots are circles on a unicycle model, and the lidar has no occlusion.
+- **Negotiation is pairwise.** Convoys and T-junctions are handled by extensions: make-room, group bids, junction-aware waiting. The T-junction is approximated as a deep bay.
+- **Bidding uses the simulator's own cost model.** Cost bidding and Clarke are therefore efficient and truthful only relative to that model.
+- **Next steps:** physical TurtleBot3 trials, AMCL/SLAM localisation, more layouts, multi-turn LLM dialogue, and independent learners.

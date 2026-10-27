@@ -1,6 +1,6 @@
 # Media
 
-Gazebo Harmonic recordings (overhead camera, sped up) of two TurtleBot3 Waffles in `scenarios/corridor_single_bay.yaml`, seed 0. Recorded with `ros2 launch amr_negotiation_ros corridor.launch.py policy:=<P> record:=true` on commit `ba2ca27` (the initial PR #1 code). Later protocol changes (decision commit, explore mode, etc.) are not in these clips. See `studies/` for results on the final code.
+Gazebo Harmonic recordings (overhead camera, sped up) of two TurtleBot3 Waffles in `configs/scenarios/corridor_single_bay.yaml`, seed 0. Recorded with `ros2 launch amr_negotiation_ros corridor.launch.py policy:=<P> record:=true` on commit `ba2ca27` (the initial PR #1 code). Later protocol changes (decision commit, explore mode, etc.) are not in these clips. See `studies/` for results on the final code.
 
 | File | Policy | Outcome |
 |---|---|---|

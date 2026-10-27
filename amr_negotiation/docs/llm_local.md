@@ -30,8 +30,8 @@ unified memory, anything from 7B up to a 70B model at Q4 (around 40 GB) fits.
 ```bash
 export AMRNEG_LLM_URL=http://localhost:8080/v1 AMRNEG_LLM_MODEL=<label for logs>
 AMRNEG_LLM_URL=$AMRNEG_LLM_URL python -m pytest -q tests/test_llm.py -k live    # end-to-end against the server
-amrneg-run scenarios/corridor_single_bay.yaml --policy llm --events --json ep.json
-amrneg-run scenarios/corridor_single_bay.yaml --policy llm --pset llm.mode=agents llm.info=plans
+amrneg-run configs/scenarios/corridor_single_bay.yaml --policy llm --events --json ep.json
+amrneg-run configs/scenarios/corridor_single_bay.yaml --policy llm --pset llm.mode=agents llm.info=plans
 ```
 
 The decision record in `ep.json` (`decisions[*]`) has the model's answers and reasons (`llm_answers`), its
@@ -41,9 +41,9 @@ latency, and the rule used. That rule is `llm_mediator` or `llm_agents`. If the 
 ## 4. The study
 
 ```bash
-python studies/llm_negotiation.py --tag <model> --model <model> --n 50 --workers 4
-# -> studies/report/llm_<model>.md, studies/results_raw/llm/<model>/{rows,cache}.jsonl
-python studies/llm_negotiation.py --tag <model>_think0 --model <model> --n 50 --think 0
+python experiments/llm/llm_negotiation.py --tag <model> --model <model> --n 50 --workers 4
+# -> data/tables/llm/llm_<model>.md, data/raw/llm/<model>/{rows,cache}.jsonl
+python experiments/llm/llm_negotiation.py --tag <model>_think0 --model <model> --n 50 --think 0
 ```
 
 - It runs `--n` random encounters per layout. In each one it compares four LLM variants against `fixed_priority`,
@@ -56,7 +56,7 @@ python studies/llm_negotiation.py --tag <model>_think0 --model <model> --n 50 --
   `--tag` replays the answers, so an interrupted run resumes and a finished one reproduces exactly.
 - Reasoning models (gpt-oss, Qwen3, DeepSeek-R1 distills) think before they answer. Pass `--max-tokens 4096` so
   the answer isn't cut off. If an older llama.cpp build rejects `response_format`, add `--no-constrain`.
-- Push the `report/` and `results_raw/llm/` outputs on a branch, or send them over, and they can go into the paper.
+- Push the `data/tables/classical/` and `data/raw/llm/` outputs on a branch, or send them over, and they can go into the paper.
 
 ## Notes
 

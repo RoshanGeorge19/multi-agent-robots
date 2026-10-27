@@ -9,7 +9,7 @@ from amr_negotiation.policies import decide, decide_rulebook, load_rulebook
 from amr_negotiation.sim2d import run_oracle
 
 ROOT = Path(__file__).resolve().parent.parent
-SINGLE = ROOT / "scenarios" / "corridor_single_bay.yaml"
+SINGLE = ROOT / "configs" / "scenarios" / "corridor_single_bay.yaml"
 
 
 @pytest.fixture
@@ -119,13 +119,13 @@ def test_rule_based_logs_rule_and_agrees(sc):
 
 
 def test_urgent_loaded_robot_keeps_right_of_way():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_urgent_loaded.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_urgent_loaded.yaml")
     r = run_episode(sc, {"name": "rule_based"}, seed=0)
     assert r["success"] and r["yielder"] == "A" and r["rule"] == "urgency"
 
 
 def test_two_bays():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     for pol in ("rule_based", "cost_bid"):
         assert run_episode(sc, {"name": pol}, seed=0)["success"]
 
@@ -174,7 +174,7 @@ def test_convoy_three_robots_resolves():
     from amr_negotiation import sim2d
     from amr_negotiation.geometry import load_scenario
 
-    sc = load_scenario(Path(__file__).resolve().parents[1] / "scenarios/corridor_convoy.yaml")
+    sc = load_scenario(Path(__file__).resolve().parents[1] / "configs/scenarios/corridor_convoy.yaml")
     for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
         r = sim2d.run_episode(sc, pol, seed=0)
         assert r["success"], pol
@@ -185,7 +185,7 @@ def test_tjunction_stem_robot_joins():
     from amr_negotiation import sim2d
     from amr_negotiation.geometry import load_scenario
 
-    sc = load_scenario(Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction.yaml")
+    sc = load_scenario(Path(__file__).resolve().parents[1] / "configs/scenarios/corridor_tjunction.yaml")
     assert sc.start_pose(sc.agents[2])[1] < -sc.half_width
     for pol in ({"name": "fixed_priority"}, {"name": "cost_bid"}):
         r = sim2d.run_episode(sc, pol, seed=0)
@@ -198,7 +198,7 @@ def test_lossy_extreme_comms_no_shared_bay():
 
     sc = sweep.apply_overrides(
         sweep.load_scenario(
-            str(Path(__file__).resolve().parents[1] / "scenarios/corridor_single_bay.yaml")
+            str(Path(__file__).resolve().parents[1] / "configs/scenarios/corridor_single_bay.yaml")
         ),
         sweep._overrides(
             {
@@ -219,7 +219,7 @@ def test_asymmetric_map_share():
     """A knows no bays, B knows both: with share_map A learns them from B's BID and the robots agree."""
     from amr_negotiation import sim2d, sweep
 
-    sc = sweep.load_scenario(str(Path(__file__).resolve().parents[1] / "scenarios/corridor_two_bays.yaml"))
+    sc = sweep.load_scenario(str(Path(__file__).resolve().parents[1] / "configs/scenarios/corridor_two_bays.yaml"))
     sc.agents[0].known_refuges = []
     own = sim2d.run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
     shared = sim2d.run_episode(
@@ -235,7 +235,7 @@ def test_tjunction_goal_refuge():
     from amr_negotiation import sim2d, sweep
 
     sc = sweep.load_scenario(
-        str(Path(__file__).resolve().parents[1] / "scenarios/corridor_tjunction_goal.yaml")
+        str(Path(__file__).resolve().parents[1] / "configs/scenarios/corridor_tjunction_goal.yaml")
     )
     r = sim2d.run_episode(sc, {"name": "cost_bid"}, seed=0, record=True)
     assert r["success"] and not r["collision"]
@@ -246,7 +246,7 @@ def test_tjunction_goal_refuge():
 
 
 def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     sc.blocked_bays = ["bay1"]
     for pol in ("fixed_priority", "cost_bid"):
         r = run_episode(sc, {"name": pol}, seed=0, record=True)
@@ -255,7 +255,7 @@ def test_blocked_bay_yielder_falls_back_instead_of_deadlocking():
 
 
 def test_learned_policy_uses_table_and_falls_back():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     r0 = run_episode(sc, {"name": "learned", "table": {}}, seed=0)
     key = r0["decisions"][0]["features"]
     assert r0["success"] and r0["decisions"][0]["rule"] == "learned:fallback"
@@ -267,7 +267,7 @@ def test_learned_policy_uses_table_and_falls_back():
 
 def test_scenario_goals_reachable_without_touching_room_walls():
     """A goal closer than radius + stop margin to an end wall is only reachable in 2D (no wall perception)."""
-    for f in sorted((ROOT / "scenarios").glob("*.yaml")):
+    for f in sorted((ROOT / "configs" / "scenarios").glob("*.yaml")):
         sc = load_scenario(f)
         m = sc.robot.radius + 0.10 + 0.05
         for a in sc.agents:
@@ -279,7 +279,7 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
     from amr_negotiation.agent import Agent, Perception
     from amr_negotiation.planner import refuge_by_id
 
-    sc = load_scenario(ROOT / "scenarios" / "corridor_tjunction.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_tjunction.yaml")
     s = Agent(next(a for a in sc.agents if a.id == "S"), sc, {"name": "fixed_priority"})
     stem = refuge_by_id(sc, "bay1")
     s.peers["B"] = {"x": stem.x + 0.8, "y": 0.0, "v": -0.2, "dir": -1, "mode": "PROCEED", "_rx": 10.0}
@@ -292,7 +292,7 @@ def test_lane_clear_uses_state_of_approaching_peer_when_lidar_is_occluded():
 def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
     from amr_negotiation.policies import decide_cost_bid, decide_group_bid
 
-    sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_convoy.yaml")
     mk = lambda i, x, d, g: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, 1.0, False,
                                      0.26, 0.15, 1.8, 0.5, group=g)
     a, b = mk("A", 1.0, 1, None), mk("B", 6.0, -1, None)
@@ -304,7 +304,7 @@ def test_group_bid_matches_cost_bid_for_pairs_and_counts_convoy():
 
 
 def test_convoy_follower_makes_room_for_yielding_leader():
-    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml"),
+    sc = apply_overrides(load_scenario(ROOT / "configs" / "scenarios" / "corridor_convoy.yaml"),
                          parse_set(["bays.0.x=2.0", "bays.1.x=8.0", "agents.2.start_delay=4.0", "agents.2.urgency=3.0"]))
     for pol in ("cost_bid", "group_bid"):
         r = run_episode(sc, {"name": pol}, seed=0)
@@ -317,14 +317,14 @@ def test_tjunction_goal_waits_in_bay_for_stem_exit():
 
     for goal_x, sd_b in ((-1.5, 0.0), (10.0, 8.0)):
         sc = SW.apply_overrides(
-            load_scenario(ROOT / "scenarios" / "corridor_tjunction_goal.yaml"),
+            load_scenario(ROOT / "configs" / "scenarios" / "corridor_tjunction_goal.yaml"),
             SW._overrides({"agents.0.start_delay": 0.0, "agents.1.start_delay": sd_b,
                            "agents.2.start_delay": 0.0, "agents.2.goal_x": goal_x, "comms.loss": 0.0}),
         )
         for pol in ("fixed_priority", "rule_based", "cost_bid"):
             spec = {"name": pol}
             if pol == "rule_based":
-                spec["rulebook"] = str(ROOT / "rulebooks" / "default.yaml")
+                spec["rulebook"] = str(ROOT / "configs" / "rulebooks" / "default.yaml")
             r = run_episode(sc, spec, seed=0)
             assert r["success"] and not r["collision"], (goal_x, sd_b, pol)
 
@@ -333,7 +333,7 @@ def test_bids_weight_each_delay_by_its_owners_urgency():
     from amr_negotiation.planner import best_plan
     from amr_negotiation.policies import group_yield_cost, yield_bid
 
-    sc = load_scenario(ROOT / "scenarios" / "corridor_convoy.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_convoy.yaml")
     mk = lambda i, x, d, u, g=None: Snapshot(i, 0.0, x, d, 0.26, 12.8 if d > 0 else -2.0, None, u, False,
                                              0.26, 0.15, 1.8, 0.5, group=g)
     a, b = mk("A", 1.0, 1, 1.0), mk("B", 6.0, -1, 3.0)
@@ -363,7 +363,7 @@ def test_clarke_pivot_is_second_price_and_truthful():
 
 
 def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_single_bay.yaml")
     for seed in range(3):
         rc = run_episode(sc, {"name": "clarke"}, seed=seed)
         rb = run_episode(sc, {"name": "cost_bid"}, seed=seed)
@@ -372,7 +372,7 @@ def test_truthful_clarke_matches_cost_bid_for_symmetric_robots():
 
 
 def test_reservation_waits_outside_while_corridor_is_held():
-    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_single_bay.yaml"),
+    sc = apply_overrides(load_scenario(ROOT / "configs" / "scenarios" / "corridor_single_bay.yaml"),
                          parse_set(["agents.1.start_delay=5.0"]))
     r = run_episode(sc, {"name": "reservation"}, seed=0)
     assert r["success"] and not r["collision"]
@@ -380,7 +380,7 @@ def test_reservation_waits_outside_while_corridor_is_held():
 
 
 def test_explore_mode_learns_bays_by_sensing_and_shares_only_after_detection():
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     sc.agent_params = {"explore": True, "share_map": True, "share_on_detect": True}
     r = run_episode(sc, {"name": "fixed_priority"}, seed=0, record=True)
     assert r["success"] and not r["collision"]
@@ -396,7 +396,7 @@ def test_explore_mode_learns_bays_by_sensing_and_shares_only_after_detection():
 
 
 def _explore_run(seed=0, **params):
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     sc.agent_params = {"explore": True, "share_map": True, "detect_range": 6.0, **params}
     return run_episode(sc, {"name": "fixed_priority"}, seed=seed, record=True)
 
@@ -428,7 +428,7 @@ def test_hold_for_map_decides_after_detection_and_map_exchange():
 
 def test_hold_for_map_survives_a_lost_map_message():
     from amr_negotiation.cli import apply_overrides, parse_set
-    sc = apply_overrides(load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml"), parse_set(["comms.loss=0.5"]))
+    sc = apply_overrides(load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml"), parse_set(["comms.loss=0.5"]))
     sc.agent_params = {"explore": True, "share_map": True, "share_on_detect": True, "hold_for_map": True}
     for seed in range(5):
         r = run_episode(sc, {"name": "fixed_priority"}, seed=seed, record=True)
@@ -444,7 +444,7 @@ def test_hold_for_map_timeout_falls_back_to_current_behaviour():
 
 def test_gazebo_world_has_obstacle_in_blocked_bay():
     from amr_negotiation import gzworld
-    sc = load_scenario(ROOT / "scenarios" / "corridor_two_bays.yaml")
+    sc = load_scenario(ROOT / "configs" / "scenarios" / "corridor_two_bays.yaml")
     assert gzworld.blocked_bay_poses(sc) == []
     sc.blocked_bays = ["bay1"]
     (x, y), = gzworld.blocked_bay_poses(sc)

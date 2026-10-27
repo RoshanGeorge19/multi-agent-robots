@@ -1,6 +1,6 @@
 """Headless Gazebo run of one negotiation episode.
 
-ros2 launch amr_negotiation_ros corridor.launch.py scenario:=/amr_negotiation/scenarios/corridor_single_bay.yaml \
+ros2 launch amr_negotiation_ros corridor.launch.py scenario:=/amr_negotiation/configs/scenarios/corridor_single_bay.yaml \
     policy:=rule_based record:=true output_dir:=/results
 """
 
@@ -64,7 +64,7 @@ def generate_launch_description():
     return LaunchDescription([
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH",
                                models + ":" + os.environ.get("GZ_SIM_RESOURCE_PATH", "")),
-        DeclareLaunchArgument("scenario", default_value="/amr_negotiation/scenarios/corridor_single_bay.yaml"),
+        DeclareLaunchArgument("scenario", default_value="/amr_negotiation/configs/scenarios/corridor_single_bay.yaml"),
         DeclareLaunchArgument("policy", default_value="rule_based"),
         DeclareLaunchArgument("rulebook", default_value=""),
         DeclareLaunchArgument("policy_file", default_value=""),

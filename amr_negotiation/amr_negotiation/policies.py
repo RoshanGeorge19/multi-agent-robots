@@ -128,7 +128,7 @@ FIXED_PRIORITY_RULEBOOK = [{"rule": "lower_id_priority"}]
 
 def load_rulebook(spec) -> list[dict]:
     if spec is None:
-        spec = Path(__file__).resolve().parent.parent / "rulebooks" / "default.yaml"
+        spec = Path(__file__).resolve().parent.parent / "configs" / "rulebooks" / "default.yaml"
     if isinstance(spec, (str, Path)):
         spec = yaml.safe_load(Path(spec).read_text())["rules"]
     for r in spec:
