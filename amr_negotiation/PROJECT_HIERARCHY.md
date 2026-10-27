@@ -29,7 +29,7 @@ AMR Negotiation/
 │
 ├── data/                        RESULTS
 │   ├── raw/                     source of truth, one row per episode
-│   │   ├── classical/           14 × *.csv.gz (2D studies)
+│   │   ├── classical/           16 × *.csv.gz (2D studies incl. convoy & T-junction)
 │   │   ├── gazebo/              2 × *.jsonl.gz (460-run batch, 36-run hold batch)
 │   │   └── llm/                 ~55 run folders <tag>/{rows.jsonl, meta.json} + stage logs
 │   └── tables/                  generated from raw/ (do not edit by hand)
@@ -44,7 +44,8 @@ AMR Negotiation/
 │   └── llm/                     index of the LLM runs (the write-up is paper 2)
 │
 ├── papers/                      MANUSCRIPTS
-│   ├── paper1_ral/              "Who Backs Into the Bay?" (classical policies, IEEE RA-L)
+│   ├── paper1_journal/          "Who Backs Into the Bay?" (12–14 page journal manuscript, IEEE T-ASE format)
+│   ├── paper1_ral/              "Who Backs Into the Bay?" (preserved 8-page letter draft, IEEE RA-L)
 │   └── paper2_tase/             "Deliberation Costs" (LLM/VLM negotiators, IEEE T-ASE)
 │
 ├── docs/                        literature review, LLM experiment plan, local-LLM how-to
@@ -86,8 +87,9 @@ AMR Negotiation/
 | `reports/classical/` | 11 study write-ups | [README](reports/classical/README.md) |
 | `reports/gazebo/` | 2 Gazebo write-ups | [README](reports/gazebo/README.md) |
 | `reports/llm/` | LLM run index by stage and model | [README](reports/llm/README.md) |
-| `papers/` | Both manuscripts, status, Overleaf notes | [README](papers/README.md) |
-| `papers/paper1_ral/` | Paper 1 source, figures, build, reviews | [README](papers/paper1_ral/README.md) |
+| `papers/` | Manuscripts, status, Overleaf notes | [README](papers/README.md) |
+| `papers/paper1_journal/` | Paper 1 (12–14 page journal version): source, 7 figures, build | [README](papers/paper1_journal/README.md) |
+| `papers/paper1_ral/` | Paper 1 (preserved 8-page RA-L letter): source, figures, build, reviews | [README](papers/paper1_ral/README.md) |
 | `papers/paper2_tase/` | Paper 2 source, figures, build, reviews | [README](papers/paper2_tase/README.md) |
 | `docs/` | Literature review, LLM plan, local-LLM setup | [README](docs/README.md) |
 | `ros2_ws/` | ROS 2 package `amr_negotiation_ros` | [README](ros2_ws/README.md) |

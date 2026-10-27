@@ -4,7 +4,8 @@
 
 | Folder | Manuscript | Venue | Status |
 |---|---|---|---|
-| [`paper1_ral/`](paper1_ral/README.md) | *Who Backs Into the Bay? Benchmarking Negotiation Policies for Head-On Robot Encounters in Single-Lane Corridors* | IEEE RA-L (letter, 8 pages) | Draft; 3 adversarial review rounds, final verdict MINOR |
+| [`paper1_journal/`](paper1_journal/README.md) | *Who Backs Into the Bay? Benchmarking Information, Incentives, and Sim-to-3D Robustness in Narrow-Corridor Robot Negotiation* | 12–14 page `IEEEtran` journal (e.g., IEEE T-ASE) | Full 12–14 page journal manuscript (7 vector figures, 5 tables, Eqs. 1–7) |
+| [`paper1_ral/`](paper1_ral/README.md) | *Who Backs Into the Bay? Benchmarking Negotiation Policies for Head-On Robot Encounters in Single-Lane Corridors* | IEEE RA-L (letter, 8 pages) | Preserved 8-page letter draft; 3 adversarial review rounds, final verdict MINOR |
 | [`paper2_tase/`](paper2_tase/README.md) | *Deliberation Costs: LLM and VLM Negotiators for Head-On Robot Encounters in Single-Lane Corridors* | IEEE T-ASE | Draft; 3 adversarial review rounds, final verdict MINOR. Companion to paper 1. |
 
 Each folder contains:

@@ -20,6 +20,8 @@ command for each file are in [`data/raw/README.md`](../README.md).
 | `S10_repeated.csv.gz` / `S10_encounters.csv.gz` | repeated encounters: per sequence and selection rule / per encounter | 350 / 1,000 |
 | `reservation.csv.gz` | reservation baseline vs negotiators | 1,260 |
 | `explore_map.csv.gz` | explore mode and map sharing, incl. the hold-for-map arm | 1,800 |
+| `convoy_group.csv.gz` | 2-vs.-1 convoy with follower `make_room` and `group_bid` | 1,080 |
+| `tjunction_goal.csv.gz` | 3-robot T-junction turn-in with upstream `goal_wait` | 384 |
 
 ## Columns
 

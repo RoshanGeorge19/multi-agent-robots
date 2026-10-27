@@ -30,7 +30,9 @@ imported), run the command below and gzip the CSV. Reports: `python experiments/
 | `S8c_protocol_ablation.csv.gz` | 5760 | 20 | `python experiments/classical/run_studies_r2.py OUT S8c_protocol_ablation` |
 | `S9_payments.csv.gz` | 10080 | 60 | `python experiments/classical/run_studies_r2.py OUT` |
 | `reservation.csv.gz` | 1260 | 30 | `python experiments/classical/reservation_baseline.py` |
-| `explore_map.csv.gz` | 1440 | 30 | `python experiments/classical/explore_map.py` (explore-mode branch, after the unified version) |
+| `explore_map.csv.gz` | 1800 | 30 | `python experiments/classical/explore_map.py` (explore + hold-for-map arms) |
+| `convoy_group.csv.gz` | 1080 | 3 | `python experiments/classical/convoy_group.py` |
+| `tjunction_goal.csv.gz` | 384 | 2 | `python experiments/classical/tjunction_goal.py` |
 | `gazebo_current.jsonl.gz` | 460 | n/a | Gazebo result JSON per run (`batch` `main@bf24bf4`: 122 original cases on main; `all@2ba4c6d`: 338 reduced-grid cases of every study). Runner `experiments/gazebo/run_case.sh` with cases from `experiments/gazebo/make_scen_all.py`; packed with `python experiments/gazebo/pack_raw.py`. Per-run comparison with 2D on the same seed: `data/tables/gazebo/gazebo_main_runs.csv`, `data/tables/gazebo/gazebo_all_runs.csv` (`experiments/gazebo/analyse_gazebo_main.py`); summary `data/tables/gazebo/gazebo_all.md` (`experiments/gazebo/summarise_gazebo.py`). |
 
 **Conventions.**
