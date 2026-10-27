@@ -1,6 +1,11 @@
 # AMR Negotiation: project overview
 
-*A reviewer's guide to the repository. Written 2026-10-27 against upstream commit `876e896`. It was then updated for the restructured layout on branch `restructure`: `configs/`, `experiments/`, `data/`, `reports/`, `papers/`. Paths are relative to the repo root.*
+*A reviewer's guide to the repository. Written 2026-10-27 against upstream commit `876e896`, then updated for the restructured layout (`configs/`, `experiments/`, `data/`, `reports/`, `papers/`) and the per-folder documentation. All changes are listed in §15. Paths are relative to the project root. On the fork, that root is `amr_negotiation/`.*
+
+**Navigation:**
+- [`README.md`](README.md): quick start;
+- [`PROJECT_HIERARCHY.md`](PROJECT_HIERARCHY.md): map of every folder, with links to its README;
+- this file: what the project is and what it found.
 
 ---
 
@@ -27,6 +32,8 @@
 - **Status.**
   - Both papers have been through 3 rounds of adversarial review, each ending with a MINOR verdict.
   - The test suite passes (47 passed, 3 skipped).
+  - The repository has been reorganised by role, and every folder has a README (§2.3, §15).
+  - A rerun of S1 from the new layout reproduces the released data row for row.
   - Remaining pre-submission work: the artifact URL/DOI, release of a few datasets, removal of the draft annotations, and the open items in §12.
 
 ---
@@ -37,7 +44,16 @@
 
 - **Upstream.** `briandeegan82/multi-agent-robots` on GitHub. That repo is itself a fork of `johannapinard/multi-agent-robots`. `amr_negotiation/` is one subdirectory of a larger monorepo.
 - **The local repo** (`/home/roshan/Claude/Projects/AMR Negotiation`) is a `git subtree split` of just that subdirectory, so its paths are flattened: the repo root here is `amr_negotiation/` upstream.
-- **Branch `restructure`** reorganises the flattened repo into the layout in §2.3. Every file was moved with `git mv`, so `git log --follow` still traces history. The old-to-new mapping is:
+- **Where the current version lives.**
+
+  | Copy | Location | Commit | Layout |
+  |---|---|---|---|
+  | Local repo | branch `main` (merged from `restructure`) | see `git log` | flattened: the project is the repo root |
+  | Your fork, `RoshanGeorge19/multi-agent-robots` | branch `main` | `876e896` → `076c623` (restructure) → `11684c6` (READMEs) → this update | monorepo: the project is in `amr_negotiation/`, next to `IsaacSim/` etc. |
+  | Original, `briandeegan82/multi-agent-robots` | branch `main` | `876e896`, unchanged | old layout |
+
+  The fork and the local repo hold **identical project contents** but **different histories**: the local repo is a `git subtree split`. So never `git push` the local `main` to the fork. Changes reach the fork as one commit that replaces `amr_negotiation/` with the local tree (`git read-tree --prefix=amr_negotiation/ -u <branch>` on a branch from the fork's `main`). Pushing happens only on an explicit request.
+- **Branch `restructure`** reorganised the flattened repo into the layout in §2.3. Every file was moved with `git mv`, so `git log --follow` still traces history. The old-to-new mapping is:
 
   | Old location | New location |
   |---|---|
@@ -49,7 +65,7 @@
   | `studies/REPORT*.md` | `reports/` |
   | `paper/`, `paper2/` | `papers/paper1_ral/`, `papers/paper2_tase/` |
 
-  Pulling future upstream changes into this branch will need those renames resolved.
+  Pulling future upstream changes in will need those renames resolved, because the original repo still uses the old layout.
 - **Authorship.** Commits touching `amr_negotiation/` run from 2026-10-14 to 2026-10-24. Almost all are by Brian Deegan, much of it through Devin agent branches (`devin/*`). The papers list Roshan George, Martin Glavin, Edward Jones and Brian Deegan (CAR group, University of Galway).
 
 ### 2.2 Monorepo siblings (not part of the negotiation project)
@@ -60,13 +76,17 @@
 | `../multi_agents_ws/` | A ROS 2 workspace with `communication_msgs`. Its `build/`, `install/` and `log/` directories are committed. |
 | `../Dockerfile` | A ROS Jazzy image for a "Wave-Rover" base layer. **Not** the negotiation image. Use `docker/Dockerfile` in this repo instead. |
 
-These siblings exist only upstream; the local repo contains just the negotiation project.
+These siblings exist in the monorepo (upstream and your fork). The local repo contains just the negotiation project.
 
 ### 2.3 Repository layout
 
-Every folder has its own README. [`PROJECT_HIERARCHY.md`](PROJECT_HIERARCHY.md) is the full map, with links to all of them.
+**Every folder has its own README** describing what is in it: files, row counts and columns for data, and inputs/outputs for scripts. Each README opens with a link back to [`PROJECT_HIERARCHY.md`](PROJECT_HIERARCHY.md) and to its parent. The hierarchy is the full map: a tree, an index of all 35 folder READMEs, and a diagram of how the pieces connect.
 
 ```
+README.md                  intro, quick start, policies, Gazebo usage, limitations
+PROJECT_OVERVIEW.md        this file
+PROJECT_HIERARCHY.md       folder map with links to every README
+pyproject.toml             package metadata; installs amrneg-run / amrneg-sweep / amrneg-world
 amr_negotiation/           core Python package (≈2.6k LOC)
   geometry.py              Scenario, RobotSpec, Refuge, AgentConfig; corridor/bay/room geometry; footprint SAT collision test
   planner.py               Snapshot (what a robot broadcasts), refuge feasibility, constant-speed yield-plan timeline & cost
@@ -288,7 +308,8 @@ Policy letters follow paper 1, Table I: R reactive, F fixed priority, D default 
   - Script: `experiments/llm/llm_negotiation.py`.
   - Encounters: seeds 100000–100099, 100 per layout (single bay, two bays), giving 200 paired encounters. Arms run at 25 encounters per layout use seeds 100000–100024.
   - Serving: local vLLM on an NVIDIA GB10 (NVFP4), plus the hosted `nemotron-3-super-120b`.
-- **Stage scripts.** `studies/stage{1,2,2b,2c,4,5,6,7}_*.sh`, one per arm of the plan in `docs/llm_experiments.md`.
+- **Stage scripts.** `experiments/llm/stage{1,2,2b,2c,4,5,6,7}_*.sh`, one per arm of the plan in `docs/llm_experiments.md`. They record what ran on the GB10 and are not portable tooling.
+- **Run index.** [`reports/llm/README.md`](reports/llm/README.md) maps every run tag to its stage, model and settings, and lists the runs paper 2 excludes.
 - **Outputs.**
   - `data/raw/llm/<tag>/{rows.jsonl, meta.json}`; `cache.jsonl` is git-ignored.
   - `data/tables/llm/llm_<tag>.md`.
@@ -317,7 +338,7 @@ Muse-Glimmer-30B failed to load. Several runs are excluded in the paper because 
 
 ## 9. Key results: classical policies (2D)
 
-These numbers are the **paper 1 values on the final code**. Some `REPORT_*.md` files are earlier snapshots and differ slightly; see §12.
+These numbers are the **paper 1 values on the final code**. Some reports in `reports/` are earlier snapshots and differ slightly; see §12.
 
 ### 9.1 Two robots, one corridor
 
@@ -505,7 +526,7 @@ These are my observations from this review. None of them changes a headline conc
 ### 12.1 Inconsistencies found
 
 1. **Robot radius in paper 2.** `papers/paper2_tase/main.tex:45` says "radius 0.15 m". Paper 1 and `geometry.RobotSpec` use a 0.25 m swept radius on a 0.281 × 0.306 m body. 0.15 m is the reverse speed, so this looks like a copy slip.
-2. **The `REPORT_*.md` files are historical snapshots, not the canonical numbers.** They were written as each feature landed. Several differ from the final-code paper values:
+2. **The study reports (`reports/classical/`, `reports/gazebo/`; formerly `studies/REPORT_*.md`) are historical snapshots, not the canonical numbers.** They were written as each feature landed. Several differ from the final-code paper values:
    - reactive success 93.1% vs 93.8%;
    - S8 success "≥ 96.7%" vs "≥ 99.3%";
    - S10 cost-optimal Jain 0.92 vs 0.93; fixed priority +28% vs +27%; alternation +23% vs +22%;
@@ -542,6 +563,9 @@ These are my observations from this review. None of them changes a headline conc
 
 - **Tests.** `pytest`: **47 passed, 3 skipped** (5.8 s). The skips need the TurtleBot3 model (Gazebo) or a live `AMRNEG_LLM_URL`.
 - **LLM prompt caches** (`cache.jsonl`) are git-ignored. Replaying an LLM run exactly therefore needs the model server, though `rows.jsonl` holds every per-episode answer and reasoning trace.
+- **Worker count.** Most study scripts hard-code `mp.Pool(8)`. Raising it speeds them up on larger machines without changing results.
+- **Paper 1 figures depend on the Matplotlib version.** `make_figures.py` reproduces the paper's numbers, but the committed PDFs were built with Matplotlib 3.11.2, so 3.9.2 gives byte-different files. Paper 2's figures regenerate identically.
+- **LLM table headers are stale.** The `data/tables/llm/llm_*.md` tables say "Generated by `studies/llm_negotiation.py`", because they were written before the restructure.
 - **Committed build output.** The monorepo commits ROS build output (`multi_agents_ws/src/{build,install,log}`). This is unrelated to the negotiation project, but it inflates the repo.
 
 ---
@@ -572,10 +596,23 @@ docker build -f docker/Dockerfile -t amrneg .
 docker run --rm -v $PWD/results:/results amrneg ros2 launch amr_negotiation_ros corridor.launch.py \
   scenario:=/amr_negotiation/configs/scenarios/corridor_single_bay.yaml policy:=rule_based record:=true
 
-# Papers
-cd paper  && python make_figures.py && latexmk -pdf main.tex
-cd paper2 && python make_figures.py && latexmk -pdf main.tex
+# Paper figures (from the repo root), then build with latexmk in each paper folder, or upload to Overleaf
+python papers/paper1_ral/make_figures.py
+python papers/paper2_tase/make_figures.py
 ```
+
+Each folder's README has the details: [`experiments/`](experiments/README.md) for studies,
+[`papers/`](papers/README.md) for builds and Overleaf, [`docker/`](docker/README.md) for Gazebo.
+
+### 13.1 Local replication status
+
+Checked on a 32-core x86_64 Ubuntu 24.04 machine with 62 GB of RAM and an RTX 4090 (24 GB):
+
+| Part | Status |
+|---|---|
+| 2D simulator, all classical studies, analysis, paper figures | **Works as-is.** S1 (2,940 episodes) reruns in about 40 s and matches the released CSV row for row |
+| Gazebo runs | **Needs Docker** (or a native ROS 2 Jazzy + Gazebo Harmonic install, which supports Ubuntu 24.04). About 3–5 min per run, so plan on a reduced subset |
+| LLM study | **Partial.** The paper's NVFP4 weights need Blackwell GPUs. On a 4090, use 4-bit GGUF/AWQ builds of the same families (the ~30B MoE models fit; the 49B dense model does not fit fully in 24 GB). Expect the same pattern of results, not identical numbers. Latency figures will be specific to the hardware |
 
 ---
 
@@ -593,3 +630,57 @@ cd paper2 && python make_figures.py && latexmk -pdf main.tex
 | `plans` / `raw` | LLM prompt with / without the planner's predicted delays. |
 | `think=0` / `measured` | LLM latency not charged / charged as frozen decision time. |
 | Share-on-detect / hold-for-map | Send the map only after lidar detects the peer / postpone the decision until that map arrives. |
+
+---
+
+## 15. Change log (2026-10-27)
+
+What changed in the repository since the upstream snapshot `876e896`. None of these changes touch the agent, the
+policies or the simulators, apart from the default-rulebook path in `policies.py`.
+
+### 15.1 Restructure (local `5f6423f`; fork `076c623`)
+
+- **Folders reorganised by role**, using the mapping table in §2.1:
+  - `configs/` for inputs;
+  - `experiments/{classical,analysis,gazebo,llm}/` for scripts;
+  - `data/raw/{classical,gazebo,llm}/` and `data/tables/{classical,classical_r2,gazebo,llm}/` for results;
+  - `reports/{classical,gazebo,llm}/` for write-ups;
+  - `papers/{paper1_ral,paper2_tase}/` for the manuscripts.
+
+  Reports were renamed in run order, e.g. `REPORT.md` became `reports/classical/01_round1_S1-S6.md`; `reports/README.md` lists every old and new name.
+- **Every reference updated:** script paths and `parents[...]` depths, cross-folder imports (`sys.path` lines for `analyse_helpers` and `learned_negotiator`), default output folders, `cd` lines in the LLM shell scripts, markdown links, and the container paths inside the Gazebo run lists and policy JSONs (`/amr_negotiation/configs/rulebooks/...`, `/amr_negotiation/data/tables/classical/learned_table.json`).
+- **Script interface changes:**
+  - `reservation_baseline.py` and `analyse_protocol.py` now default to writing into `data/`.
+  - `explore_map.py` defaults to `data/raw/classical/`.
+- **`.gitignore`** covers `papers/*/` LaTeX build files, `papers/*.zip` (Overleaf zips) and `.idea/`.
+- **Rewritten root `README.md`:** a repository map, all ten policies (four were missing), and current limitations (the old text said convoys and junctions were only planned).
+- **Bugs caught while verifying the move, all fixed:**
+  - paper 1's figure script and `make_scen_r2.py` built scenario paths in split form (`ROOT / "scenarios" / name`);
+  - `llm_negotiation.py` was missing an `import sys`.
+
+### 15.2 Documentation (local `09f8726`; fork `11684c6`)
+
+- **Added `PROJECT_HIERARCHY.md`:** a tree, an index of all 35 folder READMEs, and a data-flow diagram.
+- **Added READMEs to the 26 folders that had none.** Each describes what is available: package modules; test coverage; scenario keys; rule semantics; script inputs and outputs; raw-data columns and row counts; table contents; LLM `rows.jsonl` fields and variant names; paper files and open items; ROS nodes and launch arguments; Docker usage.
+- **Navigation.** Every README opens with links to the hierarchy and its parent, and parent READMEs link to their children. `media/README.md` became an index of its three subfolders.
+- **Corrected the tiebreak labels** in the LLM run index and this overview: `-nonce` is the *visible* draw (rule and cards in the prompt), and `-silent` is the *hidden* draw. This matches `llm.py` and paper 2.
+
+### 15.3 This update
+
+This overview gained the navigation block, the "where the current version lives" table (§2.1), the top-level
+files in the layout (§2.3), the run-index pointer and corrected stage-script paths (§8.3), the housekeeping notes
+(§12.4), working paper-figure commands, local replication status (§13), and this change log.
+
+### 15.4 Verification
+
+The checks run on the restructured tree:
+
+| Check | Result |
+|---|---|
+| `pytest` | 47 passed, 3 skipped, before and after, in both the flattened and monorepo layouts |
+| S1 rerun from `experiments/classical/` | all 2,940 rows identical to `data/raw/classical/S1_baseline.csv.gz` |
+| `amrneg-sweep configs/sweeps/bay_position.yaml` | identical to the pre-move run |
+| `analyse_protocol.py`, `summarise_gazebo.py`, `make_scen_r2.py`, `make_scen_all.py` | regenerate their committed outputs byte-identically |
+| Both papers' `make_figures.py` | run; paper 2 output is identical, paper 1 differs only by Matplotlib version (§12.4) |
+| Markdown links | 0 broken across all 63 markdown files; every README links to the hierarchy, and the hierarchy links to every README |
+| Fork commits | the `amr_negotiation/` tree is identical to the local branch, and no file outside it changed |
